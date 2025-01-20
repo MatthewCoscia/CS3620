@@ -330,7 +330,6 @@
         (where (lambda (row) (< (hash-ref row 'val) 10))) ; all pass
         (limit 2)))
     (check-equal? (length result) 2)
-    ;; We never read beyond row #2.
     ))
 
 
