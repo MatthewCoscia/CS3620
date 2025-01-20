@@ -12,8 +12,7 @@
          count
          order-by
          extend
-         join/hash
-         aggregate/multi)
+         join/hash)
 
 (require racket/list
          racket/stream
@@ -279,63 +278,6 @@
 
     ;; Convert back to a stream
     (query-result (list->stream joined))))
-
-;; -----------------------------------------------------------------------------
-;; Extra Credit: 3.5 - aggregate/multi (stream-based)
-;; -----------------------------------------------------------------------------
-;; aggregate/multi : (Listof (ColName #:using Aggregator))
-;;                   #:by (Listof ColName)
-;;                   -> Clause
-;; Groups by multiple columns and applies multiple aggregator columns simultaneously.
-(define (aggregate/multi col-agg-list #:by group-cols)
-  (lambda (qr)
-    ;; Force the entire stream, since grouping requires seeing all rows
-    (define row-list (stream->list (query-result-data qr)))
-
-    ;; Check group columns
-    (unless (null? row-list)
-      (for ([gc (in-list group-cols)])
-        (unless (hash-has-key? (first row-list) gc)
-          (error 'aggregate/multi (format "Missing group column ~a" gc))))
-      ;; Check aggregator columns
-      (for ([spec (in-list col-agg-list)])
-        (define col-name (first spec))
-        (unless (hash-has-key? (first row-list) col-name)
-          (error 'aggregate/multi
-                 (format "Missing aggregator column ~a" col-name)))))
-
-
-    ;; Group rows by (list of group-col values)
-    (define groups (make-hash))
-    (for ([row (in-list row-list)])
-      (define key (map (lambda (gc) (hash-ref row gc)) group-cols))
-      (hash-update! groups key (lambda (old) (cons row old)) '()))
-
-    ;; For each group, apply each aggregator to its column
-    (define aggregated
-      (for/list ([(group-key rows-in-group) (in-hash groups)])
-        ;; group-key is the list of grouping column values
-        ;;  => produce (gc => value) pairs
-        (define group-pairs
-          (for/list ([gc (in-list group-cols)]
-                     [val (in-list group-key)])
-            (values gc val)))
-
-        ;; aggregator columns
-        (define aggregator-pairs
-          (for/list ([spec (in-list col-agg-list)])
-            (define col-name    (first spec))
-            (define aggregator  (second spec)) ; e.g. #:using aggregator
-            (define col-values  (map (lambda (r) (hash-ref r col-name))
-                                     rows-in-group))
-            (values col-name (apply aggregator col-values))))
-
-        ;; Combine group-pairs + aggregator-pairs into one row
-        (hash (append group-pairs aggregator-pairs))))
-
-    ;; Convert final list of row-hashes back to a stream
-    (query-result (list->stream aggregated))))
-
 
 
 (module+ test

@@ -11,7 +11,8 @@
          aggregate
          count
          order-by
-         extend)
+         extend
+         join/hash)
 
 (require racket/list
          racket/set)
