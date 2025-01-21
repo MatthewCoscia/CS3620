@@ -1,6 +1,6 @@
 #lang racket
 
-(require "tables.rkt" "core-lists.rkt")
+(require "tables.rkt" "core-streams.rkt")
 
 ;; Columns: airline,airline-id,source-airport,source-airport-id,destination-airport,destination-airport-id,codeshare,stops,equipment
 (define routes (load-table "openflights/routes.csv"))

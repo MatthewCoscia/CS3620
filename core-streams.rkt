@@ -108,43 +108,69 @@
 ;; 5) join
 ;; -----------------------------------------------------------------------------
 
+;; Helper: Convert query-result to list
+(define (query-to-list qr)
+  (stream->list (query-result-data qr)))
+
+;; Helper: Check column conflicts
+(define (check-column-conflicts s1 s2)
+  (define cols1 (hash-keys (stream-first s1)))
+  (define cols2 (hash-keys (first s2)))
+  (define conflicts (set-intersect (set cols1) (set cols2)))
+  (when (not (set-empty? conflicts))
+    (error 'join (format "Conflicting columns: ~v" (set->list conflicts)))))
+
+;; Helper: Perform the join operation on two rows
+(define (join-rows row1 col1 s2 col2)
+  (define val1 (hash-ref row1 col1))
+  (for/list ([row2 (in-list s2)]
+             #:when (and (hash? row2) ; Ensure `row2` is a hash
+                         (equal? val1 (hash-ref row2 col2 'not-found))))
+    (hash-union row1 row2)))
+
+;; Custom stream-flat-map implementation
+(define (stream-flat-map f s)
+  (if (stream-empty? s)
+      empty-stream
+      (stream-append (f (stream-first s))
+                     (stream-flat-map f (stream-rest s)))))
+
+;; Custom implementation of stream->stream
+(define (stream->stream f s)
+  (if (stream-empty? s)
+      empty-stream
+      (stream-cons (f (stream-first s))
+                   (stream->stream f (stream-rest s)))))
+
+
+;; Helper: Perform the nested-loop join
+(define (nested-loop-join s1 s2 col1 col2)
+  (define (process-row row1)
+    (join-rows row1 col1 s2 col2)) ; Returns a list
+  (stream-flat-map
+   (lambda (row1)
+     (list->stream (process-row row1))) ; Convert the list to a stream
+   s1))
+
+
+;; Main Join Function
 (define (join qr2 col1 col2)
   (lambda (qr1)
     (define s1 (query-result-data qr1))
-    (define s2 (stream->list (query-result-data qr2))) ; force entire right side
+    (define s2 (query-to-list qr2)) ; Force entire right side into memory
 
-    (define first1 (stream-first s1 (void)))
-    (define rest1  (stream-rest s1))
+    ;; Check column conflicts
+    (when (and (not (stream-empty? s1)) (not (null? s2)))
+      (check-column-conflicts s1 s2))
 
-    ;; If both sides have data, check for column conflicts
-    (when (and (not (void? first1))
-               (not (null? s2)))
-      (define cols1 (hash-keys first1))
-      (define cols2 (hash-keys (first s2)))
-      (define conflicts (set-intersect (set cols1) (set cols2)))
-      (unless (set-empty? conflicts)
-        (error 'join
-               (format "Conflicting columns: ~v"
-                       (set->list conflicts)))))
+    ;; Perform the nested-loop join
+    (define final-stream (nested-loop-join s1 s2 col1 col2))
 
-
-    ;; Nested-loop join
-    (define (join-rows row1)
-      (define val1 (hash-ref row1 col1))
-      (for/list ([row2 s2]
-                 #:when (equal? val1 (hash-ref row2 col2)))
-        (hash-union row1 row2)))
-
-    (define final-stream
-      (stream-append
-       (if (void? first1)
-           (list->stream '())        ; empty stream if s1 is empty
-           (list->stream (join-rows first1)))
-       (for/stream ([r (in-stream rest1)])
-         (for*/stream ([r2 (in-list (join-rows r))])
-           r2))))
-
+    ;; Return the query result without limiting rows
     (query-result final-stream)))
+
+
+
 
 ;; -----------------------------------------------------------------------------
 ;; 6) limit
