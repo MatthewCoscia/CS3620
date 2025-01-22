@@ -379,10 +379,10 @@
     (query-result (for/stream ([r lst]) r)))
 
   ;; ----------------------------------------------------------------------------
-  ;; Test 1: limit short-circuits the stream
+  ;; Test 1: limit terminates the stream early
   ;; ----------------------------------------------------------------------------
   ;; Ensures `limit` stops processing after retrieving the first `n` rows.
-  (test-case "limit short-circuits the stream"
+  (test-case "limit terminates the stream early"
     (define dummy-3
       (rows-then-error
        (list (hash 'id 1)
@@ -395,10 +395,10 @@
     (check-equal? (length result) 2))
 
   ;; ----------------------------------------------------------------------------
-  ;; Test 2: where + limit also short-circuits
+  ;; Test 2: where + limit also terminates early
   ;; ----------------------------------------------------------------------------
   ;; Ensures `where` filters rows before `limit` stops processing.
-  (test-case "where + limit short-circuits"
+  (test-case "where + limit terminates early"
     (define dummy-5
       (rows-then-error
        (list (hash 'val 1)

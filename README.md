@@ -24,14 +24,14 @@ This project is a domain-specific language (DSL) for querying and manipulating d
 - **order-by**: Provides SQL-style sorting.
 - **extend**: Dynamically computes and adds new columns.
 
-## Avoiding Full Dataset Processing
+## Avoiding Full Data Processing
 
-### Operations That Avoid Full Processing
+### Functions That Avoid Full Processing
 1. **limit**: Stops processing after retrieving `n` rows.
-2. **where**: Short-circuits when used with `limit`.
+2. **where**: terminates early when used with `limit`.
 3. **join/hash**: Lazily builds the hash table for efficient processing.
 
-### Operations Requiring Full Processing
+### Functions Requiring Full Processing
 1. **distinct**: Scans the entire dataset to ensure uniqueness.
 2. **aggregate**: Processes all rows to compute grouped results.
 3. **order-by**: Sorts all rows, requiring the entire dataset.
@@ -47,12 +47,13 @@ Streams excel in cases where partial results are sufficient by delaying computat
 - Time-intensive for large datasets.
 
 ### Hash Join (`join/hash`)
-- Builds and probes a hash table for efficient lookups.
+- Builds and searches a hash table for efficient lookups.
 - Complexity: **O(m + n)**.
 - Much faster due to fewer comparisons and optimized memory use.
 
 ### Observations
-- **core-streams**: `join/hash` is faster due to lazy evaluation and minimized memory overhead.
+- **core-streams**: 'join' is faster in core-streams over core-lists, however not by much. This is due to the usage of lazy evaluation vs active evaluation
+- **core-streams**: `join/hash` is fastest due to lazy evaluation and minimized memory overhead.
 - **core-lists**: `join/hash` processes the dataset entirely but is still faster than nested-loop joins.
 
 ## Test Results
