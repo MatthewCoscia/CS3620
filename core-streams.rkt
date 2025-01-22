@@ -11,7 +11,8 @@
          aggregate
          count
          order-by
-         extend)
+         extend
+         join/hash)
 
 (require racket/list
          racket/stream
@@ -293,6 +294,47 @@
          (hash-set row new-col-name (f row)))
        s))
     (query-result extended-stream)))
+
+
+
+;; -----------------------------------------------------------------------------
+;; 3.4 Extra Credit 1
+;; -----------------------------------------------------------------------------
+
+;; Main join/hash function
+(define (join/hash qr2 col1 col2)
+  (lambda (qr1)
+    ;; Build hash table for the right dataset
+    (define table-hash (build-hash-table-hash-join (query-result-data qr2) col2))
+
+    ;; Stream the left dataset and process rows
+    (define left-rows (query-result-data qr1))
+    (define final-stream
+      (stream-flat-map
+       (lambda (row1)
+         (list->stream (process-hash-join-row row1 col1 table-hash)))
+       left-rows))
+
+    ;; Return query result
+    (query-result final-stream)))
+
+;; Helper: Build a hash table from a stream keyed by a column (lazily)
+(define (build-hash-table-hash-join stream col)
+  (define table (make-hash))
+  (for ([row (in-stream stream)]) ; Process stream lazily
+    (define key (hash-ref row col 'not-found))
+    (hash-update! table key (lambda (old) (cons row old)) '()))
+  table)
+
+;; Helper: Process a single row for hash join
+(define (process-hash-join-row row1 col1 table-hash)
+  (define key (hash-ref row1 col1 'not-found))
+  (define matches (hash-ref table-hash key '()))
+  (for/list ([row2 (in-list matches)])
+    (hash-union row1 row2)))
+
+
+
 
 ;; -----------------------------------------------------------------------------
 ;; TESTS
