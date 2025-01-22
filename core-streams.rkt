@@ -11,8 +11,7 @@
          aggregate
          count
          order-by
-         extend
-         join/hash)
+         extend)
 
 (require racket/list
          racket/stream
@@ -267,45 +266,6 @@
        s))
     (query-result extended-stream)))
 
-;; -----------------------------------------------------------------------------
-;; Extra Credit: 3.4 - join/hash (stream-based)
-;; -----------------------------------------------------------------------------
-;; Same signature as `join`, but uses a hash join approach.
-;; Forces the entire "right side" of the stream (qr2) to build the hash table,
-;; then reads "left side" (qr1).
-(define (join/hash qr2 col1 col2)
-  (lambda (qr1)
-    ;; Force the entire right side into a list
-    (define right-rows (stream->list (query-result-data qr2)))
-
-    ;; Build a hash table keyed by col2 -> list-of-rows
-    (define table-hash (make-hash))
-    (for ([row right-rows])
-      (define key (hash-ref row col2))
-      (hash-update! table-hash key (lambda (old) (cons row old)) '()))
-
-    ;; Force the left side as well, since we need to iterate fully
-    (define left-rows (stream->list (query-result-data qr1)))
-
-    ;; Check conflicts if both sides have data
-    (when (and (pair? left-rows) (pair? right-rows))
-      (define cols1 (hash-keys (first left-rows)))
-      (define cols2 (hash-keys (first right-rows)))
-      (define conflicts (set-intersect (set cols1) (set cols2)))
-      (unless (set-empty? conflicts)
-        (error 'join/hash
-               (format "Conflicting columns: ~v" (set->list conflicts)))))
-
-    ;; Perform the hash join
-    (define joined
-      (for*/list ([r1 left-rows]
-                  [r2 (in-list (hash-ref table-hash (hash-ref r1 col1) '()))])
-        (hash-union r1 r2)))
-
-    ;; Convert back to a stream
-    (query-result (list->stream joined))))
-
-
 (module+ test
   (require rackunit)
 
@@ -318,12 +278,12 @@
      (stream-lazy
        (error 'rows-then-error "stream forced too far"))))
 
-  ;; A small tool to convert a list of (Hash) to a QueryResult
+  ;; Helper to create a QueryResult from a list of hashes
   (define (make-qr-from-list lst)
     (query-result (for/stream ([r lst]) r)))
 
   ;; ----------------------------------------------------------------------------
-  ;; Test 1: limit does not force beyond N rows
+  ;; Test 1: limit short-circuits the stream
   ;; ----------------------------------------------------------------------------
   (test-case "limit short-circuits the stream"
     (define dummy-3
@@ -335,12 +295,10 @@
       (query/rows
         (query-result dummy-3)
         (limit 2))) ; Should retrieve only 2 rows
-    (check-equal? (length result) 2)
-    ;; If code tried to read the 3rd row, we'd see "stream forced too far."
-    )
+    (check-equal? (length result) 2))
 
   ;; ----------------------------------------------------------------------------
-  ;; Test 2: where + limit also should not force everything
+  ;; Test 2: where + limit also short-circuits
   ;; ----------------------------------------------------------------------------
   (test-case "where + limit short-circuits"
     (define dummy-5
@@ -353,10 +311,89 @@
     (define result
       (query/rows
         (query-result dummy-5)
-        (where (lambda (row) (< (hash-ref row 'val) 10))) ; all pass
-        (limit 2)))
-    (check-equal? (length result) 2)
-    ))
+        (where (lambda (row) (< (hash-ref row 'val) 4))) ; Only first 3 rows pass
+        (limit 2))) ; Should stop after 2 rows
+    (check-equal? (length result) 2))
+
+
+  ;; ----------------------------------------------------------------------------
+  ;; Test 3: order-by sorts the rows
+  ;; ----------------------------------------------------------------------------
+  (test-case "order-by sorts rows by a column"
+    (define dummy-rows
+      (make-qr-from-list
+       (list (hash 'id 3 'name "Charlie")
+             (hash 'id 1 'name "Alice")
+             (hash 'id 2 'name "Bob"))))
+    (define result
+      (query/rows
+        dummy-rows
+        (order-by 'id #:compare <))) ; Sort by `id` in ascending order
+    (check-equal? result
+                  (list (hash 'id 1 'name "Alice")
+                        (hash 'id 2 'name "Bob")
+                        (hash 'id 3 'name "Charlie"))))
+
+  ;; ----------------------------------------------------------------------------
+  ;; Test 4: extend adds new computed columns
+  ;; ----------------------------------------------------------------------------
+  (test-case "extend adds new computed columns"
+    (define dummy-rows
+      (make-qr-from-list
+       (list (hash 'x 1)
+             (hash 'x 2)
+             (hash 'x 3))))
+    (define result
+      (query/rows
+        dummy-rows
+        (extend 'square (lambda (row) (sqr (hash-ref row 'x)))))) ; Add `square`
+    (check-equal? result
+                  (list (hash 'x 1 'square 1)
+                        (hash 'x 2 'square 4)
+                        (hash 'x 3 'square 9))))
+
+  ;; ----------------------------------------------------------------------------
+  ;; Test 5: distinct removes duplicate rows
+  ;; ----------------------------------------------------------------------------
+  (test-case "distinct removes duplicate rows"
+    (define dummy-rows
+      (make-qr-from-list
+       (list (hash 'id 1)
+             (hash 'id 1)
+             (hash 'id 2)
+             (hash 'id 3)
+             (hash 'id 3))))
+    (define result
+      (query/rows
+        dummy-rows
+        (distinct))) ; Remove duplicates
+    (check-equal? result
+                  (list (hash 'id 1)
+                        (hash 'id 2)
+                        (hash 'id 3))))
+
+  ;; ----------------------------------------------------------------------------
+  ;; Test 6: complex query combining all clauses
+  ;; ----------------------------------------------------------------------------
+  (test-case "complex query combining multiple clauses"
+    (define dummy-rows
+      (make-qr-from-list
+       (list (hash 'group "A" 'val 1)
+             (hash 'group "A" 'val 2)
+             (hash 'group "B" 'val 3)
+             (hash 'group "B" 'val 4)
+             (hash 'group "C" 'val 5))))
+    (define result
+      (query/rows
+        dummy-rows
+        (aggregate 'val #:using + #:by 'group) ; Sum values by group
+        (where (lambda (row) (>= (hash-ref row 'val) 5))) ; Filter for val >= 5
+        (order-by 'val #:compare >) ; Sort descending
+        (limit 2))) ; Take only 2 rows
+    (check-equal? result
+                  (list (hash 'group "B" 'val 7)
+                        (hash 'group "C" 'val 5)))))
+
 
 
 

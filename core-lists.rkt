@@ -11,8 +11,7 @@
          aggregate
          count
          order-by
-         extend
-         join/hash)
+         extend)
 
 (require racket/list
          racket/set)
@@ -195,34 +194,4 @@
       (for/list ([row data])
         (hash-set row new-col-name (f row))))
     (query-result new-data)))
-
-;; -----------------------------------------------------------------------------
-;; Extra Credit: 3.4 - join/hash
-;; -----------------------------------------------------------------------------
-(define (join/hash qr2 col1 col2)
-  (lambda (qr1)
-    (define data1 (query-result-data qr1))
-    (define data2 (query-result-data qr2))
-    ;; Check conflicts if both sides non-empty
-    (when (and (pair? data1) (pair? data2))
-      (define cols1 (hash-keys (first data1)))
-      (define cols2 (hash-keys (first data2)))
-      (define conflicts (set-intersect (set cols1) (set cols2)))
-      (unless (set-empty? conflicts)
-        (error 'join/hash (format "Conflicting columns: ~v"
-                                  (set->list conflicts)))))
-
-    ;; Build a hash table keyed by col2 -> list-of-rows
-    (define table-hash (make-hash))
-    (for ([row (in-list data2)])
-      (define key (hash-ref row col2))
-      (hash-update! table-hash key (λ (old) (cons row old)) '()))
-
-    ;; For each row in data1, look up matching rows in table-hash
-    (define joined
-      (for*/list ([r1 (in-list data1)]
-                  [r2 (in-list (hash-ref table-hash (hash-ref r1 col1) '()))])
-        (hash-union r1 r2)))
-
-    (query-result joined)))
 
