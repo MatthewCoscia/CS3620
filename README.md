@@ -78,8 +78,8 @@ Streams are great for cases where partial results are sufficient by delaying com
 | `core-streams: join/hash` | 225       |    78   |
 
 ### Explanation
-- Hash joins avoid redundant comparisons via efficient hash table lookups.
-- Stream-based hash joins minimize memory usage and optimize computation.
+- Hash joins avoid redundant comparisons by efficient hash table lookups.
+- Stream-based hash joins minimize memory usage and are much more optimized.
 
 ## Conclusion
 Streams and hash joins significantly improve the DSL's performance for large datasets. Operations like `limit` and `where` benefit from streams, while `join/hash` excels in join-intensive tasks and in both environments.
