@@ -1,6 +1,6 @@
 #lang racket
 
-(require "tables.rkt" "core-lists.rkt")
+(require "tables.rkt" "core-streams.rkt")
 
 (define authors (load-table "authors.csv"))
 (define articles (load-table "articles.csv"))

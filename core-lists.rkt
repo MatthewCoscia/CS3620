@@ -90,37 +90,46 @@
 ;; 5) join
 ;; -----------------------------------------------------------------------------
 
+;; Main join function
 (define (join qr2 col1 col2)
   (lambda (qr1)
     (define data1 (query-result-data qr1))
     (define data2 (query-result-data qr2))
 
-    ;; Check conflicts if both sides are non-empty
-    (when (and (pair? data1)
-               (pair? data2))
-      (define cols1 (hash-keys (first data1)))
-      (define cols2 (hash-keys (first data2)))
-      (define conflicts (set-intersect (set cols1) (set cols2)))
-      (unless (set-empty? conflicts)
-        (error 'join (format "Conflicting columns: ~v"
-                             (set->list conflicts)))))
+    ;; Check for column conflicts
+    (check-column-conflicts data1 data2)
 
-    ;; Nested-loop join
-    (define joined
-      (for*/list ([r1 (in-list data1)]
-                  [r2 (in-list data2)]
-                  #:when (equal? (hash-ref r1 col1)
-                                 (hash-ref r2 col2)))
-        (hash-union r1 r2)))
+    ;; Perform the nested-loop join
+    (define joined (nested-loop-join data1 data2 col1 col2))
 
+    ;; Return the query result
     (query-result joined)))
 
-;; Helper to union two row-hashes
+;; Helper: Check for column conflicts
+(define (check-column-conflicts data1 data2)
+  (when (and (pair? data1) (pair? data2))
+    (define cols1 (hash-keys (first data1)))
+    (define cols2 (hash-keys (first data2)))
+    (define conflicts (set-intersect (set cols1) (set cols2)))
+    (unless (set-empty? conflicts)
+      (error 'join
+             (format "Conflicting columns: ~v" (set->list conflicts))))))
+
+;; Helper: Perform nested-loop join
+(define (nested-loop-join data1 data2 col1 col2)
+  (for*/list ([r1 (in-list data1)]
+              [r2 (in-list data2)]
+              #:when (equal? (hash-ref r1 col1)
+                             (hash-ref r2 col2)))
+    (hash-union r1 r2)))
+
+;; Helper: Union two row-hashes
 (define (hash-union h1 h2)
   (define new-hash (hash-copy h1))
   (for ([(k v) (in-hash h2)])
     (hash-set! new-hash k v))
   new-hash)
+
 
 ;; -----------------------------------------------------------------------------
 ;; 6) limit
@@ -145,26 +154,46 @@
 ;; -----------------------------------------------------------------------------
 ;; Key fix: produce exactly 2 columns in the row-hash, no (values ...).
 
+;; Main aggregate function
 (define (aggregate col-name #:using aggregator #:by by-col)
   (lambda (qr)
     (define data (query-result-data qr))
-    (when (and (pair? data))
-      (unless (hash-has-key? (first data) col-name)
-        (error 'aggregate (format "Missing column ~a" col-name)))
-      (unless (hash-has-key? (first data) by-col)
-        (error 'aggregate (format "Missing column ~a" by-col))))
 
-    (define groups (make-hash))
-    (for ([row (in-list data)])
-      (define key (hash-ref row by-col))
-      (define val (hash-ref row col-name))
-      (hash-update! groups key (lambda (old) (cons val old)) '()))
+    ;; Validate the columns
+    (validate-columns data col-name by-col)
 
-    (define aggregated
-      (for/list ([(gk vals) (in-hash groups)])
-        (hash by-col  gk
-              col-name (apply aggregator vals))))
+    ;; Group rows by the `by-col` key
+    (define groups (group-by data col-name by-col))
+
+    ;; Aggregate grouped values
+    (define aggregated (aggregate-groups groups aggregator col-name by-col))
+
+    ;; Return the aggregated query result
     (query-result aggregated)))
+
+;; Helper: Validate that the required columns exist
+(define (validate-columns data col-name by-col)
+  (when (and (pair? data))
+    (unless (hash-has-key? (first data) col-name)
+      (error 'aggregate (format "Missing column ~a" col-name)))
+    (unless (hash-has-key? (first data) by-col)
+      (error 'aggregate (format "Missing column ~a" by-col)))))
+
+;; Helper: Group rows by the `by-col` key
+(define (group-by data col-name by-col)
+  (define groups (make-hash))
+  (for ([row (in-list data)])
+    (define key (hash-ref row by-col))
+    (define val (hash-ref row col-name))
+    (hash-update! groups key (lambda (old) (cons val old)) '()))
+  groups)
+
+;; Helper: Aggregate grouped values
+(define (aggregate-groups groups aggregator col-name by-col)
+  (for/list ([(gk vals) (in-hash groups)])
+    (hash by-col gk
+          col-name (apply aggregator vals))))
+
 
 ;; -----------------------------------------------------------------------------
 ;; 9) count aggregator

@@ -185,55 +185,83 @@
 ;; 7) distinct
 ;; -----------------------------------------------------------------------------
 
+;; Main distinct function
 (define (distinct)
   (lambda (qr)
     (define s (query-result-data qr))
-    (define seen (make-hash))
+    (query-result (filter-distinct s))))
 
-    (define (distinct-helper st)
-      (stream-lazy
-       (cond
-         [(stream-empty? st)
-          (list->stream '())] ; produce empty stream
-         [else
-          (define r (stream-first st))
-          (if (hash-has-key? seen r)
-              (distinct-helper (stream-rest st))
-              (begin
-                (hash-set! seen r #t)
-                (stream-cons r
-                             (distinct-helper (stream-rest st)))))])))
+;; Helper: Filter distinct rows in a stream
+(define (filter-distinct s)
+  (define seen (make-hash))
+  (distinct-helper s seen))
 
-    (query-result (distinct-helper s))))
+;; Helper: Recursively process the stream to keep distinct rows
+(define (distinct-helper st seen)
+  (stream-lazy
+   (cond
+     [(stream-empty? st)
+      (list->stream '())] ; produce an empty stream
+     [else
+      (process-row (stream-first st)
+                   (stream-rest st)
+                   seen)])))
+
+;; Helper: Process a single row, adding it if it's distinct
+(define (process-row row rest-stream seen)
+  (if (hash-has-key? seen row)
+      (distinct-helper rest-stream seen) ; Skip duplicate
+      (begin
+        (hash-set! seen row #t) ; Mark row as seen
+        (stream-cons row
+                     (distinct-helper rest-stream seen))))) ; Include the row
+
 
 ;; -----------------------------------------------------------------------------
 ;; 8) aggregate
 ;; -----------------------------------------------------------------------------
 
+;; Main aggregate function
 (define (aggregate col-name #:using aggregator #:by by-col)
   (lambda (qr)
     (define s (query-result-data qr))
     (define row-list (stream->list s))
-    (when (and (pair? row-list))
-      (unless (hash-has-key? (first row-list) col-name)
-        (error 'aggregate (format "Missing column ~a" col-name)))
-      (unless (hash-has-key? (first row-list) by-col)
-        (error 'aggregate (format "Missing column ~a" by-col))))
+
+    ;; Validate the columns
+    (validate-columns row-list col-name by-col)
 
     ;; Group rows by `by-col`
-    (define groups (make-hash))
-    (for ([r (in-list row-list)])
-      (define key (hash-ref r by-col))
-      (define val (hash-ref r col-name))
-      (hash-update! groups key (lambda (old) (cons val old)) '()))
+    (define groups (group-by-column row-list col-name by-col))
 
-    ;; Build final aggregated rows: two columns
-    (define aggregated
-      (for/list ([(gk vals) (in-hash groups)])
-        (hash by-col  gk
-              col-name (apply aggregator vals))))
+    ;; Aggregate grouped values
+    (define aggregated (aggregate-groups groups aggregator col-name by-col))
 
+    ;; Return the aggregated query result
     (query-result (list->stream aggregated))))
+
+;; Helper: Validate that the required columns exist
+(define (validate-columns row-list col-name by-col)
+  (when (and (pair? row-list))
+    (unless (hash-has-key? (first row-list) col-name)
+      (error 'aggregate (format "Missing column ~a" col-name)))
+    (unless (hash-has-key? (first row-list) by-col)
+      (error 'aggregate (format "Missing column ~a" by-col)))))
+
+;; Helper: Group rows by a specific column
+(define (group-by-column row-list col-name by-col)
+  (define groups (make-hash))
+  (for ([row (in-list row-list)])
+    (define key (hash-ref row by-col))
+    (define val (hash-ref row col-name))
+    (hash-update! groups key (lambda (old) (cons val old)) '()))
+  groups)
+
+;; Helper: Aggregate grouped values
+(define (aggregate-groups groups aggregator col-name by-col)
+  (for/list ([(group-key values) (in-hash groups)])
+    (hash by-col group-key
+          col-name (apply aggregator values))))
+
 
 ;; -----------------------------------------------------------------------------
 ;; 9) count aggregator
@@ -265,6 +293,10 @@
          (hash-set row new-col-name (f row)))
        s))
     (query-result extended-stream)))
+
+;; -----------------------------------------------------------------------------
+;; TESTS
+;; -----------------------------------------------------------------------------
 
 (module+ test
   (require rackunit)
