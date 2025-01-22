@@ -1,85 +1,61 @@
-
 # SQL DSL Implementation in Racket
 
 ## Overview
 
-This project implements a domain-specific language (DSL) for querying and manipulating data using two different approaches:
-1. `core-lists.rkt` - Uses a list-based implementation for the query results.
-2. `core-streams.rkt` - Uses a stream-based implementation for the query results to optimize performance in certain cases.
+This project is a domain-specific language (DSL) for querying and manipulating data, implemented with two approaches:
+1. **core-lists.rkt**: Uses lists to store and process query results.
+2. **core-streams.rkt**: Uses streams for improved performance in specific cases.
 
 ### Features
 
 #### Core Features
-1. **from**
-   - Creates a `QueryResult` from a table of data. Supports optional prefixing of column names.
+1. **from**: Creates a `QueryResult` from a table, with optional column name prefixing.
+2. **where**: Filters rows using a predicate.
+3. **select**: Projects specified columns, raising errors for missing ones.
+4. **join**: Nested-loop join for combining two datasets, checking for column conflicts.
+5. **join/hash**: Hash-based join for faster performance in some scenarios.
+6. **limit**: Keeps only the first `n` rows.
+7. **distinct**: Removes duplicate rows.
+8. **aggregate**: Groups and computes results based on specified columns.
+9. **order-by**: Sorts rows by a column and comparator.
+10. **extend**: Adds a computed column.
 
-2. **where**
-   - Filters rows based on a predicate function.
-
-3. **select**
-   - Projects specified columns from the dataset. Raises an error if a requested column is absent.
-
-4. **join**
-   - Implements a nested-loop join of two datasets, checking for column conflicts and combining matching rows.
-
-5. **join/hash**
-   - Implements a hash join of two datasets for faster performance in certain scenarios. See the "Performance Analysis" section for details.
-
-6. **limit**
-   - Retains only the first `n` rows of the dataset.
-
-7. **distinct**
-   - Removes duplicate rows from the dataset.
-
-8. **aggregate**
-   - Groups rows by a specified column and applies an aggregator to compute results. Raises an error if required columns are missing.
-
-9. **order-by**
-   - Sorts rows by a specified column using a comparator function.
-
-10. **extend**
-    - Adds a new column by computing a value based on other columns.
-
-#### Additional Features
-- **Sorting with `order-by`**: Similar to SQL's `ORDER BY`.
-- **Derived Columns with `extend`**: Allows creating computed columns dynamically.
+#### Extra Features
+- **order-by**: Provides SQL-style sorting.
+- **extend**: Dynamically computes and adds new columns.
 
 ## Avoiding Full Dataset Processing
 
-### Operations That Can Avoid Full Dataset Processing
-1. **limit**: Stops processing as soon as the required number of rows is retrieved.
-2. **where**: Can short-circuit if used with `limit`, filtering rows lazily.
-3. **join/hash**: The hash table is built lazily for the second dataset, avoiding complete processing of the first dataset in streams.
+### Operations That Avoid Full Processing
+1. **limit**: Stops processing after retrieving `n` rows.
+2. **where**: Short-circuits when used with `limit`.
+3. **join/hash**: Lazily builds the hash table for efficient processing.
 
-### Operations That Require Full Dataset Processing
-1. **distinct**: Requires scanning the entire dataset to ensure uniqueness.
-2. **aggregate**: Needs all rows to compute grouped results.
-3. **order-by**: Requires sorting all rows, which inherently needs the full dataset.
+### Operations Requiring Full Processing
+1. **distinct**: Scans the entire dataset to ensure uniqueness.
+2. **aggregate**: Processes all rows to compute grouped results.
+3. **order-by**: Sorts all rows, requiring the entire dataset.
 
 ### Explanation
-Stream-based implementations are advantageous when partial results are sufficient, as they delay computation until needed. However, some operations (e.g., sorting and aggregation) inherently depend on the complete dataset.
+Streams excel in cases where partial results are sufficient by delaying computations. However, full-dataset operations like sorting and aggregation inherently need to process all data.
 
-## Performance Analysis: Join Implementations
+## Performance Analysis: Join Methods
 
 ### Nested Loop Join (`join`)
-- Iterates over both datasets in a nested manner.
-- Time complexity: **O(m × n)** (where `m` and `n` are the sizes of the two datasets).
-- Both `core-lists` and `core-streams` show significant time for large datasets.
+- Iterates over both datasets in a nested way.
+- Complexity: **O(m × n)** (m and n are dataset sizes).
+- Time-intensive for large datasets.
 
 ### Hash Join (`join/hash`)
-- Builds a hash table for one dataset, then probes it for matches from the other dataset.
-- Time complexity: **O(m + n)** (hash table build + lookup).
-- Significantly faster than nested loop join.
+- Builds and probes a hash table for efficient lookups.
+- Complexity: **O(m + n)**.
+- Much faster due to fewer comparisons and optimized memory use.
 
 ### Observations
-- `join/hash` in `core-streams`: Faster due to lazy evaluation of streams, reducing memory overhead.
-- `join/hash` in `core-lists`: Processes the entire dataset but still faster than the nested-loop join.
+- **core-streams**: `join/hash` is faster due to lazy evaluation and minimized memory overhead.
+- **core-lists**: `join/hash` processes the dataset entirely but is still faster than nested-loop joins.
 
-### Why Hash Join is Faster
-- Hash table operations (insert and lookup) are **O(1)** on average, drastically reducing the time compared to the nested loop approach.
-- Memory locality and reduced iterations make `join/hash` efficient even for large datasets.
-
-## Test Case Results
+## Test Results
 
 ### Query Example
 ```racket
@@ -101,8 +77,8 @@ Stream-based implementations are advantageous when partial results are sufficien
 | `core-streams: join/hash` | 225       |    78   |
 
 ### Explanation
-- The hash join significantly reduces time as it avoids redundant comparisons by leveraging hash table lookups.
-- Stream-based implementations are slightly faster for `join/hash` due to lazy evaluation, further minimizing memory usage.
+- Hash joins avoid redundant comparisons via efficient hash table lookups.
+- Stream-based hash joins minimize memory usage and optimize computation.
 
 ## Conclusion
-The use of streams and hash join improves the performance of the DSL for large datasets. Operations like `limit` and `where` benefit from streams, while `join/hash` drastically reduces computation time for joining operations.
+Streams and hash joins significantly enhance the DSL's performance for large datasets. Operations like `limit` and `where` benefit from streams, while `join/hash` excels in join-intensive tasks.
