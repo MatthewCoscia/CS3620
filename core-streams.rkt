@@ -27,11 +27,15 @@
 ;; 1) query/rows and query
 ;; -----------------------------------------------------------------------------
 
+;; query/rows : QueryResult [Clause ...] -> (ListOf Row)
+;; Executes a series of clauses on an initial QueryResult, returning a list of rows.
 (define (query/rows initial-qresult . clauses)
   (stream->list
    (query-result-data
     (apply query initial-qresult clauses))))
 
+;; query : QueryResult [Clause ...] -> QueryResult
+;; Executes a series of clauses on an initial QueryResult, returning a new QueryResult.
 (define (query initial-qresult . clauses)
   (foldl (lambda (clause current-qresult)
            (clause current-qresult))
@@ -42,6 +46,8 @@
 ;; 2) from
 ;; -----------------------------------------------------------------------------
 
+;; from : Table [#:qualify Symbol] -> QueryResult
+;; Converts a table of rows into a QueryResult as a stream. Optionally qualifies column names with a prefix.
 (define (from table #:qualify [prefix #f])
   (define s
     (if prefix
@@ -62,6 +68,8 @@
 ;; 3) where
 ;; -----------------------------------------------------------------------------
 
+;; where : (Row -> Boolean) -> Clause
+;; Filters rows in a QueryResult (stream) based on a predicate function.
 (define (where keep?)
   (lambda (qr)
     (query-result
@@ -71,9 +79,9 @@
 ;; -----------------------------------------------------------------------------
 ;; 4) select
 ;; -----------------------------------------------------------------------------
-;; Use #:when in for/hash so that we never produce 0 or 1 value
-;; when the column doesn't match.
 
+;; select : ColName ... -> Clause
+;; Projects specified columns from rows in a QueryResult. Raises an error if columns are missing.
 (define (select . col-names)
   (lambda (qr)
     (query-result
@@ -107,6 +115,24 @@
 ;; -----------------------------------------------------------------------------
 ;; 5) join
 ;; -----------------------------------------------------------------------------
+
+;; join : QueryResult ColName ColName -> Clause
+;; Performs a nested-loop inner join on two QueryResults, matching rows based on the given columns.
+;; Main Join Function
+(define (join qr2 col1 col2)
+  (lambda (qr1)
+    (define s1 (query-result-data qr1))
+    (define s2 (query-to-list qr2)) ; Force entire right side into memory
+
+    ;; Check column conflicts
+    (when (and (not (stream-empty? s1)) (not (null? s2)))
+      (check-column-conflicts s1 s2))
+
+    ;; Perform the nested-loop join
+    (define final-stream (nested-loop-join s1 s2 col1 col2))
+
+    ;; Return the query result without limiting rows
+    (query-result final-stream)))
 
 ;; Helper: Convert query-result to list
 (define (query-to-list qr)
@@ -153,29 +179,14 @@
    s1))
 
 
-;; Main Join Function
-(define (join qr2 col1 col2)
-  (lambda (qr1)
-    (define s1 (query-result-data qr1))
-    (define s2 (query-to-list qr2)) ; Force entire right side into memory
-
-    ;; Check column conflicts
-    (when (and (not (stream-empty? s1)) (not (null? s2)))
-      (check-column-conflicts s1 s2))
-
-    ;; Perform the nested-loop join
-    (define final-stream (nested-loop-join s1 s2 col1 col2))
-
-    ;; Return the query result without limiting rows
-    (query-result final-stream)))
-
-
 
 
 ;; -----------------------------------------------------------------------------
 ;; 6) limit
 ;; -----------------------------------------------------------------------------
 
+;; limit : Integer -> Clause
+;; Retains only the first n rows of a QueryResult (stream).
 (define (limit n)
   (lambda (qr)
     (query-result
@@ -186,6 +197,8 @@
 ;; 7) distinct
 ;; -----------------------------------------------------------------------------
 
+;; distinct : -> Clause
+;; Removes duplicate rows from a QueryResult (stream).
 ;; Main distinct function
 (define (distinct)
   (lambda (qr)
@@ -222,6 +235,8 @@
 ;; 8) aggregate
 ;; -----------------------------------------------------------------------------
 
+;; aggregate : ColName #:using Aggregator #:by ColName -> Clause
+;; Groups rows by one column and applies an aggregator to another column.
 ;; Main aggregate function
 (define (aggregate col-name #:using aggregator #:by by-col)
   (lambda (qr)
@@ -268,6 +283,8 @@
 ;; 9) count aggregator
 ;; -----------------------------------------------------------------------------
 
+;; count : Any ... -> Integer
+;; Aggregator that counts the number of elements.
 (define (count . vals)
   (length vals))
 
@@ -275,6 +292,9 @@
 ;; 3.2 Additional Features
 ;; -----------------------------------------------------------------------------
 
+;; order-by : ColName #:compare (Any Any -> Boolean) -> Clause
+;; Sorts rows in a QueryResult by a specified column using a comparator function. 
+;; Converts the stream to a list during sorting.
 (define (order-by col #:compare [cmp <])
   (lambda (qr)
     (define row-list (stream->list (query-result-data qr)))
@@ -285,6 +305,8 @@
                    (hash-ref r2 col)))))
     (query-result (list->stream sorted-list))))
 
+;; extend : ColName (Row -> Any) -> Clause
+;; Adds a new column to rows in a QueryResult based on a computed function.
 (define (extend new-col-name f)
   (lambda (qr)
     (define s (query-result-data qr))
@@ -301,6 +323,8 @@
 ;; 3.4 Extra Credit 1
 ;; -----------------------------------------------------------------------------
 
+;; join/hash : QueryResult ColName ColName -> Clause
+;; Performs a hash-based inner join on two QueryResults, matching rows based on the given columns.
 ;; Main join/hash function
 (define (join/hash qr2 col1 col2)
   (lambda (qr1)
@@ -357,6 +381,7 @@
   ;; ----------------------------------------------------------------------------
   ;; Test 1: limit short-circuits the stream
   ;; ----------------------------------------------------------------------------
+  ;; Ensures `limit` stops processing after retrieving the first `n` rows.
   (test-case "limit short-circuits the stream"
     (define dummy-3
       (rows-then-error
@@ -372,6 +397,7 @@
   ;; ----------------------------------------------------------------------------
   ;; Test 2: where + limit also short-circuits
   ;; ----------------------------------------------------------------------------
+  ;; Ensures `where` filters rows before `limit` stops processing.
   (test-case "where + limit short-circuits"
     (define dummy-5
       (rows-then-error
@@ -391,6 +417,7 @@
   ;; ----------------------------------------------------------------------------
   ;; Test 3: order-by sorts the rows
   ;; ----------------------------------------------------------------------------
+  ;; Ensures `order-by` correctly sorts rows by a specified column.
   (test-case "order-by sorts rows by a column"
     (define dummy-rows
       (make-qr-from-list
@@ -409,6 +436,7 @@
   ;; ----------------------------------------------------------------------------
   ;; Test 4: extend adds new computed columns
   ;; ----------------------------------------------------------------------------
+  ;; Ensures `extend` adds a computed column to each row.
   (test-case "extend adds new computed columns"
     (define dummy-rows
       (make-qr-from-list
@@ -427,6 +455,7 @@
   ;; ----------------------------------------------------------------------------
   ;; Test 5: distinct removes duplicate rows
   ;; ----------------------------------------------------------------------------
+  ;; Ensures `distinct` removes duplicate rows from the dataset.
   (test-case "distinct removes duplicate rows"
     (define dummy-rows
       (make-qr-from-list
@@ -447,6 +476,7 @@
   ;; ----------------------------------------------------------------------------
   ;; Test 6: complex query combining all clauses
   ;; ----------------------------------------------------------------------------
+  ;; Ensures a complex query combining multiple clauses produces correct results.
   (test-case "complex query combining multiple clauses"
     (define dummy-rows
       (make-qr-from-list
