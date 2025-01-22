@@ -11,7 +11,8 @@
          aggregate
          count
          order-by
-         extend)
+         extend
+         join/hash)
 
 (require racket/list
          racket/set)
@@ -24,11 +25,15 @@
 ;; 1) query/rows and query
 ;; -----------------------------------------------------------------------------
 
+;; query/rows : QueryResult [Clause ...] -> (ListOf Row)
+;; Executes a series of clauses on an initial QueryResult, returning a list of rows.
 (define (query/rows initial-qresult . clauses)
   ;; Produces a final table (list-of-rows)
   (query-result-data
    (apply query initial-qresult clauses)))
 
+;; query : QueryResult [Clause ...] -> QueryResult
+;; Executes a series of clauses on an initial QueryResult, returning a new QueryResult.
 (define (query initial-qresult . clauses)
   ;; Applies each clause in order
   (foldl (lambda (clause current-qresult)
@@ -40,6 +45,8 @@
 ;; 2) from
 ;; -----------------------------------------------------------------------------
 
+;; from : Table [#:qualify Symbol] -> QueryResult
+;; Converts a table of rows into a QueryResult. Optionally qualifies column names with a prefix.
 (define (from table #:qualify [prefix #f])
   (define qualified-data
     (if prefix
@@ -60,6 +67,8 @@
 ;; 3) where
 ;; -----------------------------------------------------------------------------
 
+;; where : (Row -> Boolean) -> Clause
+;; Filters rows in a QueryResult based on a predicate function.
 (define (where keep?)
   (lambda (qr)
     (define data (query-result-data qr))
@@ -68,9 +77,9 @@
 ;; -----------------------------------------------------------------------------
 ;; 4) select
 ;; -----------------------------------------------------------------------------
-;; The key fix is using #:when to skip unwanted columns,
-;; rather than using (when ...) which yields (void) on false.
 
+;; select : ColName ... -> Clause
+;; Projects specified columns from rows in a QueryResult. Raises an error if columns are missing.
 (define (select . col-names)
   (lambda (qr)
     (define data (query-result-data qr))
@@ -80,7 +89,7 @@
         (for ([c (in-list col-names)])
           (unless (hash-has-key? row c)
             (error 'select (format "Column ~a not present in row: ~v" c row))))
-        ;; Now produce a new row with only those columns:
+        ;; produce a new row with only those columns:
         (for/hash ([(k v) (in-hash row)]
                    #:when (memq k col-names))
           (values k v))))
@@ -90,6 +99,8 @@
 ;; 5) join
 ;; -----------------------------------------------------------------------------
 
+;; join : QueryResult ColName ColName -> Clause
+;; Performs a nested-loop inner join on two QueryResults, matching rows based on the given columns.
 ;; Main join function
 (define (join qr2 col1 col2)
   (lambda (qr1)
@@ -135,6 +146,8 @@
 ;; 6) limit
 ;; -----------------------------------------------------------------------------
 
+;; limit : Integer -> Clause
+;; Retains only the first n rows of a QueryResult.
 (define (limit n)
   (lambda (qr)
     (define data (query-result-data qr))
@@ -144,6 +157,8 @@
 ;; 7) distinct
 ;; -----------------------------------------------------------------------------
 
+;; distinct : -> Clause
+;; Removes duplicate rows from a QueryResult.
 (define (distinct)
   (lambda (qr)
     (define data (query-result-data qr))
@@ -152,8 +167,9 @@
 ;; -----------------------------------------------------------------------------
 ;; 8) aggregate
 ;; -----------------------------------------------------------------------------
-;; Key fix: produce exactly 2 columns in the row-hash, no (values ...).
 
+;; aggregate : ColName #:using Aggregator #:by ColName -> Clause
+;; Groups rows by one column and applies an aggregator to another column.
 ;; Main aggregate function
 (define (aggregate col-name #:using aggregator #:by by-col)
   (lambda (qr)
@@ -199,6 +215,8 @@
 ;; 9) count aggregator
 ;; -----------------------------------------------------------------------------
 
+;; count : Any ... -> Integer
+;; Aggregator that counts the number of elements.
 (define (count . vals)
   (length vals))
 
@@ -206,6 +224,8 @@
 ;; 3.2 Additional Features
 ;; -----------------------------------------------------------------------------
 
+;; order-by : ColName #:compare (Any Any -> Boolean) -> Clause
+;; Sorts rows in a QueryResult by a specified column using a comparator function.
 (define (order-by col #:compare [cmp <])
   (lambda (qr)
     (define data (query-result-data qr))
@@ -216,6 +236,8 @@
                    (hash-ref r2 col))))) 
     (query-result sorted)))
 
+;; extend : ColName (Row -> Any) -> Clause
+;; Adds a new column to rows in a QueryResult based on a computed function.
 (define (extend new-col-name f)
   (lambda (qr)
     (define data (query-result-data qr))
@@ -223,4 +245,40 @@
       (for/list ([row data])
         (hash-set row new-col-name (f row))))
     (query-result new-data)))
+
+
+;; -----------------------------------------------------------------------------
+;; 3.4 Extra Credit 1
+;; -----------------------------------------------------------------------------
+
+;; join/hash : QueryResult ColName ColName -> Clause
+;; Performs a hash-based inner join on two QueryResults, matching rows based on the given columns.
+;; Main join/hash function
+(define (join/hash qr2 col1 col2)
+  (lambda (qr1)
+    ;; Build hash table for the right dataset
+    (define table-hash (build-hash-table-list (query-result-data qr2) col2))
+
+    ;; Process rows in the left dataset using the hash table
+    (define left-rows (query-result-data qr1))
+    (define joined-rows
+      (process-left-rows left-rows col1 table-hash))
+
+    ;; Return the query result
+    (query-result joined-rows)))
+
+;; Helper: Build a hash table from a list keyed by a column
+(define (build-hash-table-list rows col)
+  (define table (make-hash))
+  (for ([row (in-list rows)])
+    (define key (hash-ref row col 'not-found))
+    (hash-update! table key (lambda (old) (cons row old)) '()))
+  table)
+
+;; Helper: Process rows in the left dataset
+(define (process-left-rows left-rows col1 table-hash)
+  (for*/list ([row1 (in-list left-rows)]
+              [row2 (in-list (hash-ref table-hash (hash-ref row1 col1 'not-found) '()))])
+    (hash-union row1 row2)))
+
 
