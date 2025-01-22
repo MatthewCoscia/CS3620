@@ -2,9 +2,9 @@
 
 ## Overview
 
-This project is a domain-specific language (DSL) for querying and manipulating data, implemented with two approaches:
+This project is a domain-specific language (DSL) for querying and manipulating data, implemented following two approaches:
 1. **core-lists.rkt**: Uses lists to store and process query results.
-2. **core-streams.rkt**: Uses streams for improved performance in specific cases.
+2. **core-streams.rkt**: Uses streams for improved performance.
 
 ### Features
 
@@ -37,7 +37,7 @@ This project is a domain-specific language (DSL) for querying and manipulating d
 3. **order-by**: Sorts all rows, requiring the entire dataset.
 
 ### Explanation
-Streams excel in cases where partial results are sufficient by delaying computations. However, full-dataset operations like sorting and aggregation inherently need to process all data.
+Streams are great for cases where partial results are sufficient by delaying computations. However, full-dataset operations like sorting and aggregation need to process all data.
 
 ## Performance Analysis: Join Methods
 
@@ -82,4 +82,4 @@ Streams excel in cases where partial results are sufficient by delaying computat
 - Stream-based hash joins minimize memory usage and optimize computation.
 
 ## Conclusion
-Streams and hash joins significantly enhance the DSL's performance for large datasets. Operations like `limit` and `where` benefit from streams, while `join/hash` excels in join-intensive tasks.
+Streams and hash joins significantly improve the DSL's performance for large datasets. Operations like `limit` and `where` benefit from streams, while `join/hash` excels in join-intensive tasks and in both environments.
