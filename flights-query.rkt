@@ -16,7 +16,7 @@
 (time
   (query/rows
     (from routes)
-    (join (from airlines #:qualify 'airline)
+    (join/hash (from airlines #:qualify 'airline)
           'airline-id 'airline.airline-id)
     (where (lambda (row) (equal? (hash-ref row 'airline.name) "American Airlines")))
     (select 'source-airport 'destination-airport)
