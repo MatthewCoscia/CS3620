@@ -155,14 +155,15 @@
 ;; Hint: expand to uses of `let` and `and`.
 
 (define-syntax and/as
-  (syntax-parser
-    [(_) #'#t]
-    [(_ expr) #'expr]
-    [(_ expr #:as id rest ...)
-     #'(let ([id expr])
-         (and id (and/as rest ...)))]
-    [(_ expr rest ...)
-     #'(and expr (and/as rest ...))]))
+  (lambda (stx)
+    (syntax-parse stx
+      [(_) #'#t]
+      [(_ expr) #'expr]
+      [(_ expr #:as id rest ...)
+       #'(let ([id expr])
+           (and id (and/as rest ...)))]
+      [(_ expr rest ...)
+       #'(and expr (and/as rest ...))])))
 
 (module+ test
   
@@ -221,24 +222,52 @@
 ;; Grammar transformed for pattern matching:
 ;;   TODO
 (define-syntax cases
-  (syntax-parser
-    [(_ val-expr
-        [(datum ...+) body] ...
-        (~optional [#:else else-body]))
-     #`(let ([val val-expr])
-         #,(foldr (λ (clause acc)
-                    (let ([clause-parts (syntax-e clause)])
-                      (with-syntax ([datums (car clause-parts)]
-                                    [body (cadr clause-parts)])
-                        #`(if (member val (quote datums))
-                              body
-                              #,acc))))
-                  (if (attribute else-body)
-                      #'else-body
-                      #'(error 'cases "no matching clause and no else clause"))
-                  (syntax->list #'([(datum ...) body] ...))))]))
-      
-          
+  (lambda (stx)
+    (syntax-parse stx
+      [(_ val-expr
+          [(datum ...+) body] ...
+          (~optional [#:else else-body]))
+       #`(let ([val val-expr])
+           #,(foldr (λ (clause acc)
+                       (let ([clause-parts (syntax-e clause)])
+                         (with-syntax ([datums (car clause-parts)]
+                                       [body (cadr clause-parts)])
+                           #`(if (member val (quote datums))
+                                 body
+                                 #,acc))))
+                     (if (attribute else-body)
+                         #'else-body
+                         #'(error 'cases "no matching clause and no else clause"))
+                     (syntax->list #'([(datum ... ...) body] ...))))])))
+
+
+
+(define (categorize-animal animal)
+  (cases animal
+    [(cat dog cow) 'mammal]
+    [(sparrow pigeon eagle) 'bird]
+    [#:else 'unknown]))
+
+(module+ test
+  (test-case "Categorize known animals"
+    (check-equal? (categorize-animal 'dog) 'mammal)
+    (check-equal? (categorize-animal 'cow) 'mammal)
+    (check-equal? (categorize-animal 'sparrow) 'bird)
+    (check-equal? (categorize-animal 'eagle) 'bird))
+
+  (test-case "Categorize unknown animal"
+    (check-equal? (categorize-animal 'turtle) 'unknown))
+
+  (test-case "Cases with explicit else clause"
+    (check-equal? (cases 'apple [(apple orange banana) 'fruit] [#:else 'not-fruit]) 'fruit)
+    (check-equal? (cases 'grape [(apple orange banana) 'fruit] [#:else 'not-fruit]) 'not-fruit))
+
+  (test-case "Error when no matching clause and no else clause"
+    (check-exn exn:fail? (λ () (cases 'x [(a b c) 'matched])) "Should raise error when no matching clause and no else clause"))
+
+  (test-case "Cases with a single match"
+    (check-equal? (cases 'yes [(yes) 'affirmative] [(no) 'negative] [#:else 'neutral]) 'affirmative))
+)
           
           
 
