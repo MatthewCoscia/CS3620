@@ -222,21 +222,10 @@
 ;;   TODO
 (define-syntax cases
   (syntax-parser
-    [(_ val-expr
-        [(datum ...+) body] ...
-        (~optional [#:else else-body]))
-     #`(let ([val val-expr])
-         #,(foldr (λ (clause acc)
-                    (let ([clause-parts (syntax-e clause)])
-                      (with-syntax ([datums (car clause-parts)]
-                                    [body (cadr clause-parts)])
-                        #`(if (member val (quote datums))
-                              body
-                              #,acc))))
-                  (if (attribute else-body)
-                      #'else-body
-                      #'(error 'cases "no matching clause and no else clause"))
-                  (syntax->list #'([(datum ...) body] ...))))]))
+    [(_ expr
+        [#:else else-body]
+        [(datum ...+) return] ...)]
+    #'
       
           
           
