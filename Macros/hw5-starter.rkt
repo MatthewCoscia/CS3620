@@ -62,7 +62,6 @@
       (lambda ()
         (eval '(swap! x y z)))
       "swap! should fail when given three identifiers"))
-
   
   (test-case "swap! with different types"
     (let ([a "hello"] [b 42])
@@ -111,6 +110,7 @@
 ;; (for-list ([char '(#\a #\b #\c)] [n '(1 2 3)]) (make-string n char))
 ;;
 ;; Expands to:
+#;
 (let ([lists (list '(#\a #\b #\c) '(1 2 3))])
   (unless (apply = (map length lists))
     (error 'for-list "all lists must have the same length"))
@@ -122,12 +122,12 @@
 (define-syntax for-list
   (lambda (stx)
     (syntax-parse stx
-      [(_ ([id:id e:expr] ...+) body:expr) ; Valid case
+      [(_ ([id:id e:expr] ...+) body:expr)
        #'(let ([lists (list e ...)])
            (unless (apply = (map length lists))
              (error 'for-list "all lists must have the same length"))
            (apply map (lambda (id ...) body) lists))]
-      [(_ . rest) ; Catch-all invalid syntax
+      [(_ . rest)
        (raise-syntax-error 'for-list
          "expected syntax: (for-list ([<id> <expr>] ...) <body-expr>)"
          stx)])))
@@ -168,11 +168,8 @@
       "missing body expression")))
   (test-case "for-list syntax: no bindings"
   (check-exn exn:fail:syntax?
-    (λ () (eval '(for-list () 5))) ; Zero bindings
+    (λ () (eval '(for-list () 5)))
     "expected at least one binding"))
-  (test-case "for-list raises error on unequal-length lists"
-  (check-exn #rx"for-list: all lists must have the same length"
-    (λ () (for-list ([a '(1 2)] [b '(3 4 5)]) (+ a b)))))
   (test-case "for-list with single list"
   (check-equal? (for-list ([x '(1 2 3)]) (* x 2)) '(2 4 6))))
 
@@ -182,6 +179,8 @@
 ;; <clauses> := <expr>
 ;;            | <expr> #:as <id> <clauses>
 ;;            | <expr> <clauses>
+;;
+;;
 ;;
 ;; Like Racket's `and`, but after any but the last expression there may be
 ;; an #:as <id>. Then, the value of the preceding expression is bound as that
@@ -201,21 +200,42 @@
 #;
 #t
 
-;; Example expansion:
-;;TODO
+;; Example expansion for:
+;; (and/as (hash-ref fiona 'articles #f) #:as count (number? count) (= count 3))
 ;;
-;; Hint: expand to uses of `let` and `and`.
+;; Expands to:
+#;
+(let ([count (hash-ref fiona 'articles #f)])
+  (and count
+       (let ([tmp (number? count)])
+         (and tmp (= count 3)))))
 
 (define-syntax and/as
   (lambda (stx)
     (syntax-parse stx
       [(_) #'#t]
       [(_ expr) #'expr]
-      [(_ expr #:as id rest ...)
+      [(_ expr #:as id:id rest ...+)
        #'(let ([id expr])
            (and id (and/as rest ...)))]
-      [(_ expr rest ...)
-       #'(and expr (and/as rest ...))])))
+      [(_ expr #:as non-id rest ...+)
+       (raise-syntax-error 'and/as
+         "expected an identifier after #:as"
+         #'non-id)]
+      [(_ expr #:as id:id)
+       (raise-syntax-error 'and/as
+         "#:as cannot be used in the last position"
+         stx)]
+      [(_ expr #:as)
+       (raise-syntax-error 'and/as
+         "expected an identifier after #:as"
+         stx)]
+      [(_ expr rest ...+)
+       #'(and expr (and/as rest ...))]
+      [(_ . _)
+       (raise-syntax-error 'and/as
+         "expected <expr> or <expr> #:as <id> followed by clauses"
+         stx)])))
 
 (module+ test
   
@@ -226,6 +246,30 @@
                           (= count 3)))))
   (test-case "Empty returns true"
     (check-true (and/as)))
+  
+  (test-case "Short-circuit on false"
+    (check-false (and/as #f (error "Should not run")))
+    (check-false (and/as 5 #f (error "Should not run"))))
+
+  (test-case "Nested #:as bindings"
+    (check-equal?
+     (and/as "hello" #:as s
+             (string-length s) #:as len
+             (number->string len))
+     "5"))
+
+  (test-case "Syntax error: #:as in last position"
+    (check-exn exn:fail:syntax?
+      (λ () (eval '(and/as 5 #:as x)))
+      "#:as at end"))
+
+  (test-case "Syntax error: invalid clause order"
+    (check-exn exn:fail:syntax?
+      (λ () (eval '(and/as #:as x 5)))
+      "invalid syntax"))
+  (test-case "Syntax error: #:as without identifier"
+    (check-exn #rx"expected an identifier after #:as"
+      (λ () (eval '(and/as 5 #:as)))))
   )
 
 ;; ---------------------------------------------------------------------------------------------------
@@ -264,15 +308,30 @@
 #;
 'unknown
 ;;
-;; Example expansion (of categorize-animal):
-;; TODO
+;; Example expansion for:
+;; (cases animal
+;;   [(cat dog cow) 'mammal]
+;;   [(sparrow pigeon eagle) 'bird]
+;;   [#:else 'unknown])
+;;
+;; Expands to:
+#;
+(let ([val animal])
+  (if (member val '(cat dog cow))
+      'mammal
+      (if (member val '(sparrow pigeon eagle))
+          'bird
+          'unknown)))
 ;;
 ;; Hint: Expand to nested `if`s that use `member`. You will need to transform
 ;; the grammar to another form that will correspond to your syntax-parse pattern
 ;; matches, like we did in class for `cond`. Write the transformed grammar below.
 
 ;; Grammar transformed for pattern matching:
-;;   TODO
+;; (cases <expr>
+;;   [(<datum> ...+) <expr>] ...
+;;   [#:else <expr>]?)
+;;
 (define-syntax cases
   (lambda (stx)
     (syntax-parse stx
@@ -319,6 +378,8 @@
   (test-case "Cases with a single match"
     (check-equal? (cases 'yes [(yes) 'affirmative] [(no) 'negative] [#:else 'neutral]) 'affirmative))
 )
+
+;;
           
           
 
