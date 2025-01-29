@@ -252,8 +252,7 @@
     (check-equal? (categorize-animal 'cow) 'mammal)
     (check-equal? (categorize-animal 'sparrow) 'bird)
     (check-equal? (categorize-animal 'eagle) 'bird)
-    (check-equal? (categorize-animal 'pigeon) 'bird)
-    (check-equal? (categorize-animal 'lolcow) 'unknown))
+    (check-equal? (categorize-animal 'pigeon) 'bird))
 
   (test-case "Categorize unknown animal"
     (check-equal? (categorize-animal 'turtle) 'unknown))
