@@ -60,7 +60,7 @@
     (check-exn
       exn:fail:syntax?
       (lambda ()
-        (eval '(swap! x y z))) ; Quote the invalid macro call
+        (eval '(swap! x y z)))
       "swap! should fail when given three identifiers"))
 
   
@@ -68,10 +68,25 @@
     (let ([a "hello"] [b 42])
       (swap! a b)
       (check-equal? a 42)
-      (check-equal? b "hello"))))
+      (check-equal? b "hello")))
+   (test-case "swap! fails with non-identifier arguments"
+    (check-exn exn:fail:syntax?
+               (λ () (eval '(swap! x 5)))
+               "non-identifier argument")
+    (check-exn exn:fail:syntax?
+               (λ () (eval '(swap! "oops" y)))
+               "non-identifier argument"))
+
+  (test-case "swap! fails with incorrect number of arguments"
+    (check-exn exn:fail:syntax?
+               (λ () (eval '(swap! x)))
+               "expected two identifiers")
+    (check-exn exn:fail:syntax?
+               (λ () (eval '(swap!)))
+               "expected two identifiers")))
 
 ;; ---------------------------------------------------------------------------------------------------
-;; (for-list (<binding> ...+) <expr>)
+;; (for-list (<binding> ...+) <body-expr>)
 ;;
 ;; <binding> := [<id> <expr>]
 ;;
@@ -92,22 +107,30 @@
 #;
 '("a" "bb" "ccc")
 
-;; Example expansion:
-;; TODO
+;; Example expansion for:
+;; (for-list ([char '(#\a #\b #\c)] [n '(1 2 3)]) (make-string n char))
 ;;
-;; Hint: expand to a use of `map`.
+;; Expands to:
+(let ([lists (list '(#\a #\b #\c) '(1 2 3))])
+  (unless (apply = (map length lists))
+    (error 'for-list "all lists must have the same length"))
+  (apply map
+         (lambda (char n)
+           (make-string n char))
+         lists))
 
 (define-syntax for-list
   (lambda (stx)
     (syntax-parse stx
-      [(_ ([id:identifier e:expr] ...+) body:expr)
-       #`(let ([lists (list e ...)])
+      [(_ ([id:id e:expr] ...+) body:expr) ; Valid case
+       #'(let ([lists (list e ...)])
            (unless (apply = (map length lists))
              (error 'for-list "all lists must have the same length"))
-           (apply map 
-                  (lambda (id ...) 
-                    body)
-                  lists))])))
+           (apply map (lambda (id ...) body) lists))]
+      [(_ . rest) ; Catch-all invalid syntax
+       (raise-syntax-error 'for-list
+         "expected syntax: (for-list ([<id> <expr>] ...) <body-expr>)"
+         stx)])))
 
 (module+ test
   
@@ -122,7 +145,36 @@
     (check-equal?
      (for-list ([a '(1 2 3)] [b '(4 5 6)]) (+ a b))
      '(5 7 9)
-     "numeric computation with two lists")))
+     "numeric computation with two lists"))
+  (test-case "for-list raises error on unequal-length lists"
+    (check-exn exn:fail?
+      (λ () (for-list ([a '(1 2)] [b '(3 4 5)]) (+ a b)))
+      "should error for unequal lists"))
+
+  (test-case "for-list works with empty lists"
+    (check-equal? (for-list ([x '()]) x) '() "empty list case"))
+
+  (test-case "for-list syntax: invalid bindings"
+    (check-exn exn:fail:syntax?
+      (λ () (eval '(for-list ([5 42]) 5)))
+      "non-identifier in binding")
+    (check-exn exn:fail:syntax?
+      (λ () (eval '(for-list ([x]) x)))
+      "invalid binding syntax"))
+
+  (test-case "for-list syntax: missing body"
+    (check-exn exn:fail:syntax?
+      (λ () (eval '(for-list ([x '(1 2 3)])))
+      "missing body expression")))
+  (test-case "for-list syntax: no bindings"
+  (check-exn exn:fail:syntax?
+    (λ () (eval '(for-list () 5))) ; Zero bindings
+    "expected at least one binding"))
+  (test-case "for-list raises error on unequal-length lists"
+  (check-exn #rx"for-list: all lists must have the same length"
+    (λ () (for-list ([a '(1 2)] [b '(3 4 5)]) (+ a b)))))
+  (test-case "for-list with single list"
+  (check-equal? (for-list ([x '(1 2 3)]) (* x 2)) '(2 4 6))))
 
 ;; ---------------------------------------------------------------------------------------------------
 ;; (and/as <clauses>)
