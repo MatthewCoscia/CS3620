@@ -226,19 +226,17 @@
     (syntax-parse stx
       [(_ val-expr
           [(datum ...+) body] ...
-          (~optional [#:else else-body]))
+          (~optional [#:else else-expr]))
        #`(let ([val val-expr])
-           #,(foldr (λ (clause acc)
-                       (let ([clause-parts (syntax-e clause)])
-                         (with-syntax ([datums (car clause-parts)]
-                                       [body (cadr clause-parts)])
-                           #`(if (member val (quote datums))
-                                 body
-                                 #,acc))))
-                     (if (attribute else-body)
-                         #'else-body
-                         #'(error 'cases "no matching clause and no else clause"))
-                     (syntax->list #'([(datum ... ...) body] ...))))])))
+           #,(let loop ([datums (syntax->list #'((datum ...) ...))]
+                         [bodies (syntax->list #'(body ...))])
+               (if (null? datums)
+                   (if (attribute else-expr)
+                       #'else-expr
+                       #'(error 'cases "no clause matched and no else clause"))
+                   #`(if (member val (quote #,(car datums)))
+                         #,(car bodies)
+                         #,(loop (cdr datums) (cdr bodies))))))])))
 
 
 
