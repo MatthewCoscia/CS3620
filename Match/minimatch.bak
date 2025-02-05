@@ -136,33 +136,55 @@
                          "unsupported pattern"
                          #'pat)]))
 
-(define-syntax (minimatch stx)
-  (syntax-parse stx
-    [(_ target-expr [pat body] ...+)
-     #'(let ([target-val target-expr])
-         (minimatch-val target-val [pat body] ...))]))
+(module+ test
+  (require rackunit)
 
-(define-syntax (minimatch-val stx)
-  (syntax-parse stx
-    [(_ target-val [pat body] ...+)
-     #'(match-clauses target-val ([pat body] ...))]))
+  ;; Simple Or Pattern
+  (check-equal?
+   (minimatch (cons (cons 1 2) 3)
+              [(or (cons (cons a b) c) (cons a (cons b c)))
+               (list a b c)])
+   '(1 2 3))
 
-(define-syntax (match stx)
-  (syntax-parse stx
-    [(_ target-expr [pat body] ...+)
-     #'(let ([target-val target-expr])
-         (match-clauses target-val ([pat body] ...)))]))
+  #;
+  ;; Or Pattern with Two Matching Branches (should take first)
+  (check-equal?
+   (minimatch '(42)
+              [(or (list a) (cons a b)) a])
+   42)
 
-(define-syntax (match-clauses stx)
-  (syntax-parse stx
-    [(_ target-val ([pat body] [next-pat next-body] ...+))
-     #'(do-match target-val pat body
-                 (lambda ()
-                   (match-clauses target-val ([next-pat next-body] ...))))]
-    [(_ target-val ([pat body]))
-     #'(do-match target-val pat body error-on-fail)]))
+  #;
+  ;; Or Pattern with a Failing Branch
+  (check-equal?
+   (minimatch (cons 5 10)
+              [(or (list a b) (cons a b)) (list a b)]))
 
-;; Tests for 6.5.1
+
+  #;
+  ;; Or Pattern Fails (No Matches)
+  (check-exn
+   exn:fail?
+   (lambda ()
+     (minimatch 42
+                [(or (list a b) (cons a b)) a])))
+
+  #;
+  ;; More Than Two Patterns in `or`
+  (check-equal?
+   (minimatch '(10 20)
+              [(or (list a b) (list a b) (list a b c))
+               (list a b)]))
+
+  #;
+  ;; Ensuring `or` Branches Bind the Same Variables
+  (check-exn
+   exn:fail?
+   (lambda ()
+     (minimatch 5
+                [(or (list a b) x) x])))
+  )
+
+
 (module+ test
   (require rackunit)
 
@@ -203,7 +225,7 @@
    (lambda ()
      (minimatch '(5) [(and (list a b) x) x]))))
 
-;; Tests for 6.5.2
+
 (module+ test
   (require rackunit)
 
@@ -244,7 +266,7 @@
               [_ "fail"])
    "empty"))
 
-;; Tests for 6.2
+
 (module+ test
   (require rackunit
            syntax/macro-testing)
@@ -253,27 +275,52 @@
   (define test-fail
     (lambda () (error 'minimatch "match failure")))
   
-  ;; Successful match using a cons pattern.
+  ;; Test 1: Successful match using a cons pattern.
   (define x (cons 1 2))
   (check-equal? (do-match x (cons a b) (+ a b) error-on-fail) 3)
   
-  ;; Correct expected value to 10
+  ;; Test 2: Correct expected value to 10
   (check-equal? (do-match 1 '1 (+ 10 0) error-on-fail) 10)
   
-  ;; Runtime failure when matching a non-pair with a cons pattern.
+  ;; Test 3: Runtime failure when matching a non-pair with a cons pattern.
   (check-exn
    #rx"minimatch: all patterns failed to match"
    (lambda ()
      (do-match 42 (cons a b) (+ a b) error-on-fail)))
   
-  ;; Malformed pattern using convert-compile-time-error
+  ;; Test 4: Malformed pattern using convert-compile-time-error
   (check-exn
    #rx"malformed cons pattern"
    (lambda ()
      (convert-compile-time-error
       (do-match x (cons a) (+ a 1) error-on-fail)))))
 
-;; Tests for 6.3
+(define-syntax (minimatch stx)
+  (syntax-parse stx
+    [(_ target-expr [pat body] ...+)
+     #'(let ([target-val target-expr])
+         (minimatch-val target-val [pat body] ...))]))
+
+(define-syntax (minimatch-val stx)
+  (syntax-parse stx
+    [(_ target-val [pat body] ...+)
+     #'(match-clauses target-val ([pat body] ...))]))
+
+(define-syntax (match stx)
+  (syntax-parse stx
+    [(_ target-expr [pat body] ...+)
+     #'(let ([target-val target-expr])
+         (match-clauses target-val ([pat body] ...)))]))
+
+(define-syntax (match-clauses stx)
+  (syntax-parse stx
+    [(_ target-val ([pat body] [next-pat next-body] ...+))
+     #'(do-match target-val pat body
+                 (lambda ()
+                   (match-clauses target-val ([next-pat next-body] ...))))]
+    [(_ target-val ([pat body]))
+     #'(do-match target-val pat body error-on-fail)]))
+
 (module+ test
   (check-equal?
    (let ([v (cons (cons 1 2) (cons 3 4))])
