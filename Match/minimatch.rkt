@@ -3,22 +3,6 @@
 (require "runtime.rkt"
          (for-syntax syntax/parse racket/syntax racket/set racket/list))
 
-(define-for-syntax (get-bound-vars pat)
-  "Returns a list of identifiers bound in the given pattern."
-  (syntax-parse pat
-    #:literals (cons list and or quote)
-    [(quote _) '()]
-    [id:id (list #'id)]
-    [(cons p1 p2)
-     (append (get-bound-vars #'p1) (get-bound-vars #'p2))]
-    [(list ps ...)
-     (apply append (map get-bound-vars (syntax->list #'(ps ...))))]
-    [(and ps ...)
-     (apply append (map get-bound-vars (syntax->list #'(ps ...))))]
-    [(or p ...)
-     (apply append (map get-bound-vars (syntax->list #'(p ...))))]
-    [_ (raise-syntax-error 'get-bound-vars "unsupported pattern" pat)]))
-
 ;;----------------------------------------------------------------
 ;; do-match Macro
 ;;
