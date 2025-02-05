@@ -45,6 +45,9 @@
       (on-success (car target) (cdr target))
       (on-fail)))
 
+;; -----------------------------------------------------------
+;; Tests
+;; -----------------------------------------------------------
 ;; Tests for 6.1 -- match-==
 (module+ test
   (require rackunit)

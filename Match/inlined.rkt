@@ -5,7 +5,6 @@
 
 ;; A simple function that decides if `x` is a basic literal
 ;; (number, string, boolean, symbol, char, keyword, list, vector, etc.)
-;; You can expand this if you want to handle more cases.
 (define-for-syntax (my-literal? x)
   (or (boolean? x)
       (number? x)

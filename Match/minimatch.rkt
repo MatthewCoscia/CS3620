@@ -100,7 +100,7 @@
      ;; Get symbols from the first branch
      (define p1-syms (vars->sorted-symbols p1-vars))
 
-     ;; 2) Validate other branches
+     ;; Validate other branches
      (for ([branch (in-list p2-syn-list)])
        (define branch-vars (get-bound-vars branch))
        (define branch-syms (vars->sorted-symbols branch-vars))
@@ -109,7 +109,7 @@
                              "all branches of an `or` pattern must bind the same set of variables"
                              branch)))
 
-     ;; 3) Build nested or-chain
+     ;; Build nested or-chain
      (define nested
        (foldr (lambda (this-pat acc)
                 #`(do-match target #,this-pat
@@ -118,7 +118,7 @@
               #'on-fail
               p2-syn-list))
 
-     ;; 4) Final syntax
+     ;; Final syntax
      #`(let ([match-success (lambda (#,@p1-vars) success-body)])
          (do-match target #,p1-syn
                    (match-success #,@p1-vars)
@@ -162,6 +162,9 @@
     [(_ target-val ([pat body]))
      #'(do-match target-val pat body error-on-fail)]))
 
+;; -----------------------------------------------------------
+;; Tests
+;; -----------------------------------------------------------
 ;; Tests for 6.5.1
 (module+ test
   (require rackunit)
