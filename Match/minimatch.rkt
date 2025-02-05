@@ -86,44 +86,6 @@
             #'success-body
             (syntax->list #'(p1 p2 ...)))]
 
-    ;; Or pattern (or <pat1> <pat2> ...)
-    [(_ target (or p1 p2 ...+) success-body on-fail)
-     ;; 1) Extract branches and their variables
-     (define p1-syn #'p1)
-     (define p2-syn-list (syntax->list #'(p2 ...)))
-     (define p1-vars (get-bound-vars p1-syn))
-
-     ;; Helper to convert variables to sorted symbols
-     (define (vars->sorted-symbols vars)
-       (sort (remove-duplicates (map syntax-e vars)) symbol<?))
-
-     ;; Get symbols from the first branch
-     (define p1-syms (vars->sorted-symbols p1-vars))
-
-     ;; Validate other branches
-     (for ([branch (in-list p2-syn-list)])
-       (define branch-vars (get-bound-vars branch))
-       (define branch-syms (vars->sorted-symbols branch-vars))
-       (unless (equal? p1-syms branch-syms)
-         (raise-syntax-error 'do-match
-                             "all branches of an `or` pattern must bind the same set of variables"
-                             branch)))
-
-     ;; Build nested or-chain
-     (define nested
-       (foldr (lambda (this-pat acc)
-                #`(do-match target #,this-pat
-                            (match-success #,@p1-vars)
-                            #,acc))
-              #'on-fail
-              p2-syn-list))
-
-     ;; Final syntax
-     #`(let ([match-success (lambda (#,@p1-vars) success-body)])
-         (do-match target #,p1-syn
-                   (match-success #,@p1-vars)
-                   #,nested))]
-
     ;; Malformed cons patterns
     [(_ _ (cons . elems) success-body on-fail)
      (raise-syntax-error 'do-match
