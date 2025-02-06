@@ -111,6 +111,78 @@
 ;; -----------------------------------------------------------
 ;; Tests
 ;; -----------------------------------------------------------
+
+;; Tests for 6.2
+(module+ test
+  (require rackunit
+           syntax/macro-testing)
+
+  ;; A helper failure continuation for testing.
+  (define test-fail
+    (lambda () (error 'minimatch "match failure")))
+  
+  ;; Successful match using a cons pattern.
+  (define x (cons 1 2))
+  (check-equal? (do-match x (cons a b) (+ a b) error-on-fail) 3)
+  
+  ;; Correct expected value to 10
+  (check-equal? (do-match 1 '1 (+ 10 0) error-on-fail) 10)
+  
+  ;; Runtime failure when matching a non-pair with a cons pattern.
+  (check-exn
+   #rx"minimatch: all patterns failed to match"
+   (lambda ()
+     (do-match 42 (cons a b) (+ a b) error-on-fail)))
+  
+  ;; Malformed pattern using convert-compile-time-error
+  (check-exn
+   #rx"malformed cons pattern"
+   (lambda ()
+     (convert-compile-time-error
+      (do-match x (cons a) (+ a 1) error-on-fail)))))
+
+;; Tests for 6.3
+(module+ test
+  (check-equal?
+   (let ([v (cons (cons 1 2) (cons 3 4))])
+     (minimatch v
+                [(cons a '()) "one thing"]
+                [(cons a (cons b '())) "two things"]
+                [(cons (cons a b) (cons c d)) "binary tree"]))
+   "binary tree")
+
+  ;; Test multiple clauses with earlier failures
+  (check-equal?
+   (minimatch (list 1 2)
+              [(cons a '()) "one"]
+              [(cons a (cons b '())) "two"]
+              [_ "other"])
+   "two")
+
+  ;; Test all clauses fail
+  (check-exn
+   #rx"minimatch: all patterns failed to match"
+   (lambda ()
+     (minimatch 5
+                [(cons a b) 'fail1]
+                ['x 'fail2])))
+  
+  ;; 6.3.1 Example Expansion Test
+  (check-equal?
+   (let ([v (cons (cons 1 2) (cons 3 4))])
+     (let ([on-clause1-fail (lambda ()
+                              (let ([on-clause2-fail (lambda ()
+                                                       (do-match v (cons (cons a b) (cons c d))
+                                                                 "binary tree"
+                                                                 error-on-fail))])
+                                (do-match v (cons a (cons b '()))
+                                          "two things"
+                                          on-clause2-fail)))])
+       (do-match v (cons a '())
+                 "one thing"
+                 on-clause1-fail)))
+   "binary tree"))
+
 ;; Tests for 6.5.1
 (module+ test
   (require rackunit)
@@ -192,77 +264,6 @@
               [(list) "empty"]
               [_ "fail"])
    "empty"))
-
-;; Tests for 6.2
-(module+ test
-  (require rackunit
-           syntax/macro-testing)
-
-  ;; A helper failure continuation for testing.
-  (define test-fail
-    (lambda () (error 'minimatch "match failure")))
-  
-  ;; Successful match using a cons pattern.
-  (define x (cons 1 2))
-  (check-equal? (do-match x (cons a b) (+ a b) error-on-fail) 3)
-  
-  ;; Correct expected value to 10
-  (check-equal? (do-match 1 '1 (+ 10 0) error-on-fail) 10)
-  
-  ;; Runtime failure when matching a non-pair with a cons pattern.
-  (check-exn
-   #rx"minimatch: all patterns failed to match"
-   (lambda ()
-     (do-match 42 (cons a b) (+ a b) error-on-fail)))
-  
-  ;; Malformed pattern using convert-compile-time-error
-  (check-exn
-   #rx"malformed cons pattern"
-   (lambda ()
-     (convert-compile-time-error
-      (do-match x (cons a) (+ a 1) error-on-fail)))))
-
-;; Tests for 6.3
-(module+ test
-  (check-equal?
-   (let ([v (cons (cons 1 2) (cons 3 4))])
-     (minimatch v
-                [(cons a '()) "one thing"]
-                [(cons a (cons b '())) "two things"]
-                [(cons (cons a b) (cons c d)) "binary tree"]))
-   "binary tree")
-
-  ;; Test multiple clauses with earlier failures
-  (check-equal?
-   (minimatch (list 1 2)
-              [(cons a '()) "one"]
-              [(cons a (cons b '())) "two"]
-              [_ "other"])
-   "two")
-
-  ;; Test all clauses fail
-  (check-exn
-   #rx"minimatch: all patterns failed to match"
-   (lambda ()
-     (minimatch 5
-                [(cons a b) 'fail1]
-                ['x 'fail2])))
-  
-  ;; 6.3.1 Example Expansion Test
-  (check-equal?
-   (let ([v (cons (cons 1 2) (cons 3 4))])
-     (let ([on-clause1-fail (lambda ()
-                              (let ([on-clause2-fail (lambda ()
-                                                       (do-match v (cons (cons a b) (cons c d))
-                                                                 "binary tree"
-                                                                 error-on-fail))])
-                                (do-match v (cons a (cons b '()))
-                                          "two things"
-                                          on-clause2-fail)))])
-       (do-match v (cons a '())
-                 "one thing"
-                 on-clause1-fail)))
-   "binary tree"))
 
 
 
