@@ -11,17 +11,11 @@
 (define (range x)
   (in-range x))
 
-(p-for num in (range 5)
-        (displayln (* num num)))
-
 (define (print msg)
   (displayln msg))
 
-(define (append-of lst item)
-  (append lst (list item)))
-
-(define (length-of lst)
-  (length lst))
-
-(define (reverse-of lst)
-  (reverse lst))
+(for ([x (in-range 1 6)])
+    (displayln x))
+;; converts to
+(p-for num in (range 5)
+        (print (* num num)))

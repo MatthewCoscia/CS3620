@@ -79,48 +79,12 @@
             #:colors '("magenta" "cyan")))
   
   ;; Use plot/frame to open the plot in a new window
-  #;
   (parameterize ([plot-new-window? #t])
     (plot
      picture
      #:title "AAPL SMA Chart"
      #:x-label "Days"
      #:y-label "Price")))
-
-(require (for-syntax syntax/parse))
-
-(define-syntax (p-for stx)
-  (syntax-parse stx
-    [(_ id (~literal in) seq body ...)
-     #'(for ([id seq]) body ...)]))
-
-(define (range x)
-  (in-range x))
-
-(p-for num in (range 5)
-        (displayln (* num num)))
-
-(define (append lst item)
-  (append lst (list item)))
-
-(define (length lst)
-  (length lst))
-
-(define (reverse lst)
-  (reverse lst))
-
-(define-syntax (dot-syntax stx)
-  (syntax-parse stx
-    [(_ obj . method-call)
-     (syntax-case #'method-call ()
-       [(method args ...)
-        ;; Generate a function name of the form "method-obj"
-        (with-syntax ([func (datum->syntax #'method
-                                           (string->symbol
-                                            (string-append (symbol->string (syntax-e #'method))
-                                                           "-of")))])
-          #'(func obj args ...))])]))
-
 
 
 
