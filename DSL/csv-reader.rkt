@@ -48,7 +48,7 @@
     (hash-set! header-map field i))
   
   ;; Define the required headers.
-  (define required-headers '("Date" "Open" "High" "Low" "Close" "Volume" "Adj Close"))
+  (define required-headers '("Date" "Open" "High" "Low" "Close" "Volume"))
   
   ;; Check if each required header is present.
   (for-each
@@ -78,8 +78,7 @@
     (define low       (string->number (list-ref fields (hash-ref header-map "Low"))))
     (define close     (string->number (list-ref fields (hash-ref header-map "Close"))))
     (define volume    (string->number (list-ref fields (hash-ref header-map "Volume"))))
-    (define adj-close (string->number (list-ref fields (hash-ref header-map "Adj Close"))))
-    (list timestamp open high low close volume adj-close))
+    (list timestamp open high low close volume))
   
   ;; Parse the remaining data rows.
   (define rows (map row->data-point (cdr lines)))

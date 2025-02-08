@@ -1,0 +1,18 @@
+Analysis Features
+- VWAP
+- SMA
+- EMA
+
+Display Features
+- Volume Display
+- Splitview
+
+For Python:
+- for in
+- print
+- if: / else if
+- input (maybe)
+- .syntaxes (.append, .sort)
+- try, except
+- 
+ 
