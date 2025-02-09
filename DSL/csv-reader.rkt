@@ -1,4 +1,5 @@
 #lang racket
+
 (require racket/string)
 
 ;; Define string-blank? if it's not available.
@@ -20,11 +21,7 @@
     [(regexp-match #px"," header-line) ","]
     [else (error "Could not detect delimiter in header line")]))
 
-;; Load and parse a CSV file.
-;;
-;; Returns a stock-data structure with:
-;;  - header: a list of the field names (strings)
-;;  - rows: a list of data points (each represented as a list of values)
+;; Load and parse a CSV file with chronological sorting
 (define (load-stock-data filename)
   (define data-str (file->string filename))
   (define all-lines (string-split data-str "\n"))
@@ -32,77 +29,59 @@
   (unless (and (pair? lines) (> (length lines) 1))
     (error "CSV file has insufficient data"))
   
-  ;; Process the header line.
+  ;; Process the header line
   (define header-line (car lines))
   (define delimiter (detect-delimiter header-line))
   (define header (map string-trim (string-split header-line delimiter)))
   
-  ;; Display the headers (optional)
-  (displayln "CSV Headers:")
-  (for-each displayln header)
-  
-  ;; Create a hash mapping header names to their column indexes.
+  ;; Create a hash mapping header names to their column indexes
   (define header-map (make-hash))
   (for ([i (in-naturals)]
         [field (in-list header)])
     (hash-set! header-map field i))
   
-  ;; Define the required headers.
+  ;; Validate required headers
   (define required-headers '("Date" "Open" "High" "Low" "Close" "Volume"))
-  
-  ;; Check if each required header is present.
   (for-each
    (lambda (hdr)
      (unless (hash-has-key? header-map hdr)
        (error 'load-stock-data (format "Missing required header: ~a" hdr))))
    required-headers)
   
-  ;; Check if the CSV includes a "Time" column for intraday data.
-  (define has-time? (hash-has-key? header-map "Time"))
-  (define parse-timestamp
-    (if has-time?
-        ;; For intraday data: combine Date and Time.
-        (lambda (fields)
-          (string-append (list-ref fields (hash-ref header-map "Date"))
-                         " " (list-ref fields (hash-ref header-map "Time"))))
-        ;; Otherwise, use just the Date.
-        (lambda (fields)
-          (list-ref fields (hash-ref header-map "Date")))))
-  
-  ;; Convert a row (string) into a data point (a list of values).
+  ;; Convert a row into a data point
   (define (row->data-point row)
     (define fields (map string-trim (string-split row delimiter)))
-    (define timestamp (parse-timestamp fields))
-    (define open      (string->number (list-ref fields (hash-ref header-map "Open"))))
-    (define high      (string->number (list-ref fields (hash-ref header-map "High"))))
-    (define low       (string->number (list-ref fields (hash-ref header-map "Low"))))
-    (define close     (string->number (list-ref fields (hash-ref header-map "Close"))))
-    (define volume    (string->number (list-ref fields (hash-ref header-map "Volume"))))
-    (list timestamp open high low close volume))
+    (define date (list-ref fields (hash-ref header-map "Date")))
+    (define open (string->number (list-ref fields (hash-ref header-map "Open"))))
+    (define high (string->number (list-ref fields (hash-ref header-map "High"))))
+    (define low (string->number (list-ref fields (hash-ref header-map "Low"))))
+    (define close (string->number (list-ref fields (hash-ref header-map "Close"))))
+    (define volume (string->number (list-ref fields (hash-ref header-map "Volume"))))
+    (list date open high low close volume))
   
-  ;; Parse the remaining data rows.
-  (define rows (map row->data-point (cdr lines)))
-  (stock-data header rows))
+  ;; Parse and sort data by date (oldest first)
+  (define unsorted-rows (map row->data-point (cdr lines)))
+  (define sorted-rows
+    (sort unsorted-rows
+          (λ (a b)
+            (string<? (car a) (car b)))))  ;; Compare date strings directly
+  
+  (stock-data header sorted-rows))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Example usage:
-;;
-;; (define aapl-data (load-stock-data "aapl.csv"))
-;;
-;; The above call will now error out with a clear message if any required
-;; header is missing.
+;; Example Usage
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (module+ main
-  (define aapl-data (load-stock-data "aapl.csv"))
+  ;; Load and display sorted data
+  (define aapl (load-stock-data "aapl.csv"))
   
-  ;; Display the parsed headers.
-  (displayln "\nParsed Headers:")
-  (for-each displayln (stock-data-header aapl-data))
+  (displayln "Headers:")
+  (for-each displayln (stock-data-header aapl))
   
-  ;; Display the first few data points.
-  (displayln "\nFirst few data points:")
-  (for-each displayln (take (stock-data-rows aapl-data) 3)))
+  (displayln "\nFirst 3 sorted rows:")
+  (for ([row (take (stock-data-rows aapl) 3)])
+    (displayln row)))
 
 (provide load-stock-data
          stock-data
