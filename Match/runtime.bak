@@ -14,41 +14,6 @@
       (on-success)
       (on-fail)))
 
-; ——————————————————-
-; Any (Any -> Any) FailureK -> Any
-; Matches any value. The success continuation is called
-; with the matched target value.
-(define (match-var target on-success on-fail)
-  (on-success target))
-
-; ——————————————————-
-; Any (Any Any -> Any) FailureK -> Any
-; Matches a pair value. The success continuation is called
-; with the car and cdr of the pair.
- 
-; Examples:
-; (match-cons
-;   (cons 1 2)
-;   (lambda (car-val cdr-val) (+ car-val cdr-val))
-;   error-on-fail)
-; Evaluates to:
-; 3
-; 
-; (match-cons
-;  4
-;  (lambda (car-val cdr-val) (+ car-val cdr-val))
-;  error-on-fail)
-; Raises the error with message "minimatch: all patterns failed to match"
- 
-(define (match-cons target on-success on-fail)
-  (if (pair? target)
-      (on-success (car target) (cdr target))
-      (on-fail)))
-
-;; -----------------------------------------------------------
-;; Tests
-;; -----------------------------------------------------------
-;; Tests for 6.1 -- match-==
 (module+ test
   (require rackunit)
 
@@ -79,8 +44,14 @@
                (lambda () 'yes)
                (lambda () 'no))
     'yes))
+ 
+; ——————————————————-
+; Any (Any -> Any) FailureK -> Any
+; Matches any value. The success continuation is called
+; with the matched target value.
+(define (match-var target on-success on-fail)
+  (on-success target))
 
-;; Tests for 6.1 -- match-var
 (module+ test
   (require rackunit)
 
@@ -102,8 +73,31 @@
                (lambda (s) (string-append s " world"))
                error-on-fail)
     "hello world"))
+ 
+; ——————————————————-
+; Any (Any Any -> Any) FailureK -> Any
+; Matches a pair value. The success continuation is called
+; with the car and cdr of the pair.
+ 
+; Examples:
+; (match-cons
+;   (cons 1 2)
+;   (lambda (car-val cdr-val) (+ car-val cdr-val))
+;   error-on-fail)
+; Evaluates to:
+; 3
+; 
+; (match-cons
+;  4
+;  (lambda (car-val cdr-val) (+ car-val cdr-val))
+;  error-on-fail)
+; Raises the error with message "minimatch: all patterns failed to match"
+ 
+(define (match-cons target on-success on-fail)
+  (if (pair? target)
+      (on-success (car target) (cdr target))
+      (on-fail)))
 
-;; Tests for 6.1 -- match-cons
 (module+ test
   (require rackunit)
   ;; Test with an explicit cons cell (not a list):
@@ -136,7 +130,6 @@
       (lambda () 'failed))
     'failed))
 
-;; Tests for 6.1.2
 (module+ test
   (require rackunit)
   
