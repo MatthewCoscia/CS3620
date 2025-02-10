@@ -163,6 +163,7 @@
                #:x-label "Date"
                #,@plot-kws))]))
 
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Main DSL Usage
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -174,6 +175,7 @@
   (candle
    (SMA 20 AAPL)
    (SMA 20 MSFT)
+   #:label "Lines"
    #:title "AAPL vs MSFT 20-day SMA"
    #:colors '("red" "blue")
    #:y-label "Price (USD)"
