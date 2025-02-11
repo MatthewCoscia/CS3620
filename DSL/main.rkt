@@ -4,32 +4,32 @@
          racket/string
          racket/date
          syntax/parse/define
+         racket/contract
          "csv-reader.rkt")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Custom Plot Components
+;; Custom Plot Components (with Contracts)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; Convert seconds to a “plot day” (number of days)
-(define (seconds->plot-day s)
+(define/contract (seconds->plot-day s)
+  (-> number? number?)
   (/ s 86400))
 
-;; Convert a plot day back to seconds
-(define (plot-day->seconds d)
+(define/contract (plot-day->seconds d)
+  (-> number? number?)
   (* d 86400))
 
-;; Convert a date object to a string.
-;; (Using simple ~a formatting since Racket's format does not support ~4d, ~2d, etc.)
-(define (date->string d)
+(define/contract (date->string d)
+  (-> date? string?)
   (format "~a-~a-~a" (date-year d) (date-month d) (date-day d)))
 
-;; NEW-STYLE date-ticks that returns a ticks descriptor
-;; Plot calls this once, gets the descriptor, and uses it internally.
-(define (date-ticks)
+;; For our purposes we do not have a precise ticks-descriptor predicate,
+;; so we use any/c. (Alternatively, one might define a predicate that checks
+;; that the returned value “comes from” a call to ticks.)
+(define/contract (date-ticks)
+  (-> any/c)
   (ticks 
    ;; Generator lambda:
-   ;; Takes ax-min and ax-max (in “plot days”), converts them to seconds,
-   ;; and chooses the tick step based on the overall range.
    (λ (ax-min ax-max)
      (displayln (format "Generator called with ax-min: ~a, ax-max: ~a" ax-min ax-max))
      (define start (plot-day->seconds ax-min))
@@ -37,9 +37,6 @@
      (displayln (format "Computed start (seconds): ~a, end (seconds): ~a" start end))
      (define range-days (- ax-max ax-min))
      ;; Decide the step size (in days) based on the overall range:
-     ;; - If more than 3 years are visible, tick every 365 days (yearly)
-     ;; - If between 1 and 3 years are visible, tick every 30 days (monthly)
-     ;; - Otherwise, tick every 7 days (weekly)
      (define step-days
        (cond
          [(> range-days (* 365 3)) 365]
@@ -50,13 +47,9 @@
        (let ([pt (pre-tick (seconds->plot-day d) #t)])
          (displayln (format "Generator produced pre-tick: ~a" pt))
          pt)))
-   
    ;; Formatter lambda:
-   ;; Note: Its parameters are in the order (min-tick max-tick pre-ticks).
-   ;; We use min-tick and max-tick (in plot days) to decide if we should show only the year.
    (λ (min-tick max-tick pre-ticks)
      (define overall-range (- max-tick min-tick))  ; in days
-     ;; When zoomed out over more than 3 years, we show only the year.
      (define use-year-only? (> overall-range (* 365 3)))
      (displayln (format "Formatter called with min-tick: ~a, max-tick: ~a, overall-range: ~a, pre-ticks: ~a"
                         min-tick max-tick overall-range pre-ticks))
@@ -79,12 +72,12 @@
                   label)))
           pre-ticks))))
 
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Date Parsing and Dataset Definition
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define (parse-date date-str)
+(define/contract (parse-date date-str)
+  (-> string? number?)
   (define parts (string-split date-str "-"))
   (define year (string->number (first parts)))
   (define month (string->number (second parts)))
@@ -98,13 +91,24 @@
 ;; Indicator Functions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define (date-close-pairs stock)
+;; A helper predicate to check that a “date-close pair” is a pair where the
+;; first element (a plot day) and the second element (the close value) are numbers.
+(define (date-close-pair? p)
+  (and (pair? p)
+       (number? (first p))
+       (number? (second p))))
+
+(define/contract (date-close-pairs stock)
+  (-> stock-data? (listof date-close-pair?))
   (map (λ (row)
          (list (seconds->plot-day (parse-date (first row))) 
                (list-ref row 4)))
        (stock-data-rows stock)))
 
-(define (compute-sma period pairs)
+(define/contract (compute-sma period pairs)
+  (-> (and/c integer? (λ (n) (> n 0))) ; period must be a positive integer
+      (listof date-close-pair?)
+      (listof date-close-pair?))
   (define n (length pairs))
   (if (< n period)
       '()
@@ -114,17 +118,23 @@
                [date    (first (last window))])
           (list date average)))))
 
-(define (SMA period stock)
+(define/contract (SMA period stock)
+  (-> (and/c integer? (λ (n) (> n 0))) stock-data? (listof date-close-pair?))
   (compute-sma period (date-close-pairs stock)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Plotting System
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define (original-candle indicators
-                         #:label [label ""]
-                         #:volume [volume #t]
-                         #:colors [colors '("blue" "red" "green")])
+(define/contract (original-candle indicators
+                                   #:label [label ""]
+                                   #:volume [volume #t]
+                                   #:colors [colors '("blue" "red" "green")])
+  (-> list? 
+      #:label string?
+      #:volume boolean?
+      #:colors (listof string?)
+      list?)
   (for/list ([pts indicators]
              [color (in-list colors)])
     (lines pts #:color color #:label label)))
@@ -152,7 +162,7 @@
      (define-values (oc-label oc-volume oc-colors plot-kws)
        (split-keywords #'(k ...) #'(v ...) #'(#:label #:volume #:colors) stx))
      #`(parameterize ([plot-new-window? #t]
-                      [plot-x-ticks (date-ticks)]        ; <---- CALL (date-ticks)
+                      [plot-x-ticks (date-ticks)]
                       [plot-x-tick-label-angle 30]
                       [plot-x-tick-label-anchor 'top-right])
          (plot (keyword-apply
@@ -162,7 +172,6 @@
                 (list (list #,@(syntax->list #'(indicator ...))))) ; Wrap indicators in a list
                #:x-label "Date"
                #,@plot-kws))]))
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Main DSL Usage

@@ -1,9 +1,11 @@
 #lang racket
 
 (require racket/string)
+(require racket/contract)
 
 ;; Define string-blank? if it's not available.
-(define (string-blank? s)
+(define/contract (string-blank? s)
+  (-> string? boolean?)
   (string=? (string-trim s) ""))
 
 ;; Define a structure that holds both the header and the rows of data.
@@ -15,14 +17,16 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;; Given a header line, detect the delimiter (either tab or comma).
-(define (detect-delimiter header-line)
+(define/contract (detect-delimiter header-line)
+  (-> string? string?)
   (cond
     [(regexp-match #px"\t" header-line) "\t"]
     [(regexp-match #px"," header-line) ","]
     [else (error "Could not detect delimiter in header line")]))
 
 ;; Load and parse a CSV file with chronological sorting
-(define (load-stock-data filename)
+(define/contract (load-stock-data filename)
+  (-> string? stock-data?)
   (define data-str (file->string filename))
   (define all-lines (string-split data-str "\n"))
   (define lines (filter (lambda (line) (not (string-blank? line))) all-lines))
@@ -85,5 +89,6 @@
 
 (provide load-stock-data
          stock-data
+         stock-data?
          stock-data-header
          stock-data-rows)
