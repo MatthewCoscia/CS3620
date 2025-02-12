@@ -22,7 +22,9 @@
 
 (define-syntax (define-option stx)
   (syntax-parse stx
-    [(_ name:id #:strike strike 
+    [(_ name:id
+                #:action action
+                #:strike strike 
                 #:current-price price
                 #:expiration expiration)
      (let ([type (infer-type #'name)]) ;; Call the helper function at syntax-time
@@ -34,7 +36,7 @@
 
 ;; Define syntax for creating a strategy with an arbitrary number of options
 (define-syntax-rule (define-option-strategy name option ...)
-  (define name (lambda () (graph-strategy-multi (list (option) ...)))))
+  (define name (lambda () (graph-strategy-multi (list option ...)))))
 
 ;; Function to graph multiple options together
 (define (graph-strategy-multi options)
@@ -43,8 +45,8 @@
   (plot (function payoff 60 250) #:title "Option Strategy Payoff"))
 
 ;; Example Usage:
-(define-option call-1 #:strike 100 #:current-price 101 #:expiration 10)
-(define-option put-1  #:strike 100 #:current-price 99  #:expiration 10)
+(define-option call-1 #:action 'buy #:strike 100 #:current-price 101 #:expiration 10)
+(define-option put-1  #:action 'buy #:strike 100 #:current-price 99  #:expiration 10)
 (define-option-strategy my-strategy call-1 put-1)
 
 (my-strategy)  ;; This should now call the strategy and plot the graph
