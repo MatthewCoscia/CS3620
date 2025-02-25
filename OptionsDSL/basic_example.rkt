@@ -1,38 +1,71 @@
 #lang racket
-
 (require plot)
 (require (for-syntax syntax/parse))
+(require math/special-functions)
+
+;; Cumulative distribution function for standard normal distribution
+(define (cdf x)
+  (/ (+ 1 (erf (/ x (sqrt 2)))) 2))
+
+;; Black-Scholes formula for call options
+(define (black-scholes-call S K T r sigma)
+  (let* ([d1 (/ (+ (log (/ S K)) (* (+ r (/ (expt sigma 2) 2)) T))
+                (* sigma (sqrt T)))]
+         [d2 (- d1 (* sigma (sqrt T)))]
+         [Nd1 (cdf d1)]
+         [Nd2 (cdf d2)])
+    (- (* S Nd1) (* K (exp (* (- r) T)) Nd2))))
+
+;; Black-Scholes formula for put options
+(define (black-scholes-put S K T r sigma)
+  (let* ([call-price (black-scholes-call S K T r sigma)])
+    (- call-price (* S (- K (exp (* (- r) T)))))))
+
+;; Updated calculate-premium function using Black-Scholes
+(define (calculate-premium strike price expiration risk-free-rate volatility type)
+  (if (eq? type 'call)
+      (black-scholes-call price strike expiration risk-free-rate volatility)
+      (black-scholes-put price strike expiration risk-free-rate volatility)))
 
 ;; Define helpers to create call and put option payoff functions
-(define (graph-strategy strike premium type)
+(define (graph-strategy strike premium quantity type action)
   (lambda (x)
-    (cond
-      [(eq? type 'call) (- (max 0 (- x strike)) premium)]  ; for calls
-      [(eq? type 'put)  (- (max 0 (- strike x)) premium)])))  ; for puts
-
-;; Helper function to infer option type from name
-(define-for-syntax (infer-type name-stx)
-  (let* ([name-str (symbol->string (syntax->datum name-stx))]
-         [first-three (substring name-str 0 (min 3 (string-length name-str)))])
-    (if (string-ci=? first-three "cal")
-        #'call  ;; Return as a syntax object, not a raw symbol
-        (if (string-ci=? first-three "put")
-            #'put
-            (raise-syntax-error 'define-option "Option name does not start with 'call' or 'put'" name-stx)))))
+    (let* ([raw-payoff 
+            (cond
+              [(eq? type 'call) (max 0 (- x strike))]  ; for calls
+              [(eq? type 'put)  (max 0 (- strike x))])]  ; for puts
+           [adjusted-payoff (* quantity (- raw-payoff premium))]
+           [final-payoff (if (eq? action 'buy)
+                             adjusted-payoff
+                             (- adjusted-payoff))])
+      final-payoff)))
 
 (define-syntax (define-option stx)
   (syntax-parse stx
     [(_ name:id
-                #:action action
-                #:strike strike 
-                #:current-price price
-                #:expiration expiration)
-     (let ([type (infer-type #'name)]) ;; Call the helper function at syntax-time
+        #:action (~or buy:id sell:id)
+        #:type (~or call:id put:id)
+        #:quantity quantity:expr 
+        #:strike strike:expr 
+        #:current-price price:expr
+        #:expiration expiration:expr
+        #:risk-free-rate rate:expr
+        #:volatility vol:expr)
+     (let ([action (if (attribute buy) #''buy #''sell)]
+           [type (if (attribute call) #''call #''put)])
        #`(define name
-           (let ([strategy (graph-strategy strike 
-                                           (- price strike)  ;; initial premium calculation
-                                           '#,type)])  ;; Ensure `type` is quoted correctly
-             (lambda (x) (strategy x)))))]))
+           (let* ([strike-val strike] 
+                  [premium
+                   (calculate-premium strike-val price expiration rate vol
+                                      #,type)]
+                  [strategy
+                   (graph-strategy strike-val premium quantity #,type
+                                   #,action)])
+             (case-lambda
+               [(x) (if (eq? x 'get-strike)
+                        strike-val
+                        (strategy x))]
+               [() (strategy 0)]))))]))
 
 ;; Define syntax for creating a strategy with an arbitrary number of options
 (define-syntax-rule (define-option-strategy name option ...)
@@ -40,16 +73,88 @@
 
 ;; Function to graph multiple options together
 (define (graph-strategy-multi options)
+    (define strikes (map (lambda (option-fn) 
+                         (option-fn 'get-strike)) 
+                       options))
+  (define min-price (apply min strikes))
+  (define max-price (apply max strikes))
+  (define horizontal-margins (* (/ (+ max-price min-price) 2) 0.1))
   (define (payoff x)
-    (apply + (map (lambda (opt) (opt x)) options)))
-  (plot (function payoff 60 250) #:title "Option Strategy Payoff"))
+    (apply + (map (lambda (option-fn) (option-fn x)) options)))
+
+  (define y-min (apply min (map payoff (range (- min-price horizontal-margins) 
+                                            (+ max-price horizontal-margins) 
+                                            1))))
+
+  (define y-max (apply max (map payoff (range (- min-price horizontal-margins) 
+                                            (+ max-price horizontal-margins) 
+                                            1))))
+  (define y-margin (* 0.1 (- y-max y-min)))
+  (plot (function payoff
+                  (- min-price horizontal-margins)
+                  (+ max-price horizontal-margins))
+        #:title "Option Strategy Payoff"
+        #:y-min (- y-min y-margin)
+        #:y-max (+ y-max y-margin)))
 
 ;; Example Usage:
-(define-option call-1 #:action 'buy #:strike 100 #:current-price 101 #:expiration 10)
-(define-option put-1  #:action 'buy #:strike 100 #:current-price 99  #:expiration 10)
-(define-option-strategy my-strategy call-1 put-1)
+;; Buying a call option with a strike price of $100
+(define-option call-buy-1
+  #:action buy
+  #:type call
+  #:quantity 1
+  #:strike 100
+  #:current-price 104
+  #:expiration 0.1
+  #:risk-free-rate 0.05
+  #:volatility 0.2)
 
-(my-strategy)  ;; This should now call the strategy and plot the graph
+;; Selling a call option with a strike price of $105
+(define-option call-sell-2
+  #:action sell
+  #:type call
+  #:quantity 1
+  #:strike 105
+  #:current-price 104
+  #:expiration 0.1
+  #:risk-free-rate 0.05
+  #:volatility 0.2)
+
+;; Buying a put option with a strike price of $95
+(define-option put-buy-1
+  #:action buy
+  #:type put
+  #:quantity 1
+  #:strike 95
+  #:current-price 101
+  #:expiration 0.01
+  #:risk-free-rate 0.05
+  #:volatility 0.2)
+
+;; Simple Call
+(define-option-strategy simple-call
+  call-buy-1)
+
+;; Simple Short Call
+(define-option-strategy simple-short-call
+  call-sell-2)
+
+;; Debit Spread
+(define-option-strategy call-debit-spread
+  call-buy-1
+  call-sell-2)
+
+;; Straddle
+(define-option-strategy straddle
+  call-buy-1
+  put-buy-1)
+
+;; Execute the strategies
+(simple-call)
+(simple-short-call)
+(call-debit-spread)
+(straddle)
+
 
 #|
 Option Pricing
