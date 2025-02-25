@@ -43,7 +43,7 @@
 (define-syntax (define-option stx)
   (syntax-parse stx
     [(_ name:id
-        #:action (~or buy:id sell:id)
+        #:action action:id
         #:type (~or call:id put:id)
         #:quantity quantity:expr 
         #:strike strike:expr 
@@ -51,8 +51,14 @@
         #:expiration expiration:expr
         #:risk-free-rate rate:expr
         #:volatility vol:expr)
-     (let ([action (if (attribute buy) #''buy #''sell)]
+     (unless (or (eq? (syntax-e #'action) 'buy)
+                 (eq? (syntax-e #'action) 'sell))
+       (raise-syntax-error #f "Expected #:action to be either 'buy' or 'sell'" #'action))
+     
+           (let ([action (if (eq? (syntax-e #'action) 'buy) #''buy #''sell)]
            [type (if (attribute call) #''call #''put)])
+     
+        
        #`(define name
            (let* ([strike-val strike] 
                   [premium
@@ -64,8 +70,7 @@
              (case-lambda
                [(x) (if (eq? x 'get-strike)
                         strike-val
-                        (strategy x))]
-               [() (strategy 0)]))))]))
+                        (strategy x))]))))]))
 
 ;; Define syntax for creating a strategy with an arbitrary number of options
 (define-syntax-rule (define-option-strategy name option ...)
@@ -109,6 +114,7 @@
   #:risk-free-rate 0.05
   #:volatility 0.2)
 
+
 ;; Selling a call option with a strike price of $105
 (define-option call-sell-2
   #:action sell
@@ -131,11 +137,13 @@
   #:risk-free-rate 0.05
   #:volatility 0.2)
 
+
 ;; Simple Call
 (define-option-strategy simple-call
   call-buy-1)
 
 ;; Simple Short Call
+
 (define-option-strategy simple-short-call
   call-sell-2)
 
@@ -144,10 +152,12 @@
   call-buy-1
   call-sell-2)
 
+
 ;; Straddle
 (define-option-strategy straddle
   call-buy-1
   put-buy-1)
+
 
 ;; Execute the strategies
 (simple-call)
