@@ -32,8 +32,8 @@
   (lambda (x)
     (let* ([raw-payoff 
             (cond
-              [(eq? type 'call) (max 0 (- x strike))]  
-              [(eq? type 'put)  (max 0 (- strike x))])]
+              [(eq? type 'call) (max 0 (- x strike))]  ; for calls
+              [(eq? type 'put)  (max 0 (- strike x))])]  ; for puts
            [adjusted-payoff (* quantity (- raw-payoff premium))]
            [final-payoff (if (eq? action 'buy)
                              adjusted-payoff
@@ -134,7 +134,7 @@
   #:strike 95
   #:current-price 101
   #:expiration 0.01
-  #:risk-free-rate 0.05 
+  #:risk-free-rate 0.05
   #:volatility 0.2)
 
 

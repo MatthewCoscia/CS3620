@@ -1,0 +1,93 @@
+#lang racket
+
+(require plot)
+(require (for-syntax syntax/parse))
+
+;; Define helpers to create call and put option payoff functions
+(define (graph-strategy strike premium type)
+  (lambda (x)
+    (cond
+      [(eq? type 'call) (- (max 0 (- x strike)) premium)]  ; for calls
+      [(eq? type 'put)  (- (max 0 (- strike x)) premium)])))  ; for puts
+
+;; Helper function to infer option type from name
+(define-for-syntax (infer-type name-stx)
+  (let* ([name-str (symbol->string (syntax->datum name-stx))]
+         [first-three (substring name-str 0 (min 3 (string-length name-str)))])
+    (if (string-ci=? first-three "cal")
+        #'call  ;; Return as a syntax object, not a raw symbol
+        (if (string-ci=? first-three "put")
+            #'put
+            (raise-syntax-error 'define-option "Option name does not start with 'call' or 'put'" name-stx)))))
+
+(define-syntax (define-option stx)
+  (syntax-parse stx
+    [(_ name:id
+                #:action action
+                #:strike strike 
+                #:current-price price
+                #:expiration expiration)
+     (let ([type (infer-type #'name)]) ;; Call the helper function at syntax-time
+       #`(define name
+           (let ([strategy (graph-strategy strike 
+                                           (- price strike)  ;; initial premium calculation
+                                           '#,type)])  ;; Ensure `type` is quoted correctly
+             (lambda (x) (strategy x)))))]))
+
+;; Define syntax for creating a strategy with an arbitrary number of options
+(define-syntax-rule (define-option-strategy name option ...)
+  (define name (lambda () (graph-strategy-multi (list option ...)))))
+
+;; Function to graph multiple options together
+(define (graph-strategy-multi options)
+  (define (payoff x)
+    (apply + (map (lambda  0 250) #:title "Option Strategy Payoff"))
+
+;; Example Usage:
+;; Buying a call option with a strike price of $100, the current price of the
+;; stock is $101 and the days till expiration is ten.
+
+;; This is your most basic option strategy. Potential loss is limited and
+;; profits are theoritically infinite.
+(define-option call-buy-1
+  #:action 'buy or 'sell
+  #:type 'call or 'put
+  #:strike <number>
+  #:current-price <number>
+  #:expiration <number>
+  #:risk-free-rate <float>
+  #:volatility <float>)
+
+
+(define-option call-sell-2
+  #:action 'buy
+  #:type 'call
+  #:strike 105
+  #:current-price 101
+  #:expiration 10
+  #:risk-free-rate 0.05
+  #:volatility 0.2)
+
+(define-option call-sell-2
+  #:action 'buy
+  #:type 'sell
+  #:strike 105
+  #:current-price 101
+  #:expiration 10
+  #:risk-free-rate 0.05
+  #:volatility 0.2)
+
+
+;; Debit Spread
+(define-option-strategy call-debit-spread
+  call-buy-1
+  call-sell-2)
+
+(my-strategy)  ;; This should now call the strategy and plot the graph
+
+#|
+Option Pricing
+Black-Scholes Model
+Binomial Options Pricing Model:
+Monte Carlo Simulation:
+|#
