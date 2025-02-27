@@ -22,7 +22,8 @@
     (- call-price (* S (- K (exp (* (- r) T)))))))
 
 ;; Updated calculate-premium function using Black-Scholes
-(define (calculate-premium strike price expiration risk-free-rate volatility type)
+(define (calculate-premium strike price expiration risk-free-rate volatility
+                           type)
   (if (eq? type 'call)
       (black-scholes-call price strike expiration risk-free-rate volatility)
       (black-scholes-put price strike expiration risk-free-rate volatility)))
@@ -53,11 +54,13 @@
         #:volatility vol:expr)
      (unless (or (eq? (syntax-e #'action) 'buy)
                  (eq? (syntax-e #'action) 'sell))
-       (raise-syntax-error #f "Expected #:action to be either 'buy' or 'sell'" #'action))
+       (raise-syntax-error #f "Expected #:action to be either 'buy' or 'sell'"
+                           #'action))
 
      (unless (or (eq? (syntax-e #'type) 'call)
                  (eq? (syntax-e #'type) 'put))
-       (raise-syntax-error #f "Expected #:type to be either 'call' or 'put'" #'type))
+       (raise-syntax-error #f "Expected #:type to be either 'call' or 'put'"
+                           #'type))
      
      (let ([action (if (eq? (syntax-e #'action) 'buy)  #''buy  #''sell)]
            [type   (if (eq? (syntax-e #'type)   'call) #''call #''put)])
@@ -67,7 +70,8 @@
            (lambda (current-price)
              (let* ([strike-val strike] 
                     [premium
-                     (calculate-premium strike-val current-price expiration rate vol
+                     (calculate-premium strike-val current-price expiration
+                                        rate vol
                                         #,type)]
                     [strategy
                      (graph-strategy strike-val premium quantity #,type
@@ -78,7 +82,8 @@
                           (strategy x))])))))]))
 
 ;; Modified strategy definition to include current price
-(define-syntax-rule (define-option-strategy name #:current-price price option ...)
+(define-syntax-rule (define-option-strategy name #:current-price price
+                      option ...)
   (define name 
     (let ([option-fns (list (option price) ...)])
       (lambda () (graph-strategy-multi option-fns)))))
