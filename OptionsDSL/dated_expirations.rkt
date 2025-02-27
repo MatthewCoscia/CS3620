@@ -40,45 +40,52 @@
                              (- adjusted-payoff))])
       final-payoff)))
 
+;; Modified option definition to not include current price
 (define-syntax (define-option stx)
   (syntax-parse stx
     [(_ name:id
         #:action action:id
-        #:type (~or call:id put:id)
+        #:type type:id
         #:quantity quantity:expr 
         #:strike strike:expr 
-        #:current-price price:expr
         #:expiration expiration:expr
         #:risk-free-rate rate:expr
         #:volatility vol:expr)
      (unless (or (eq? (syntax-e #'action) 'buy)
                  (eq? (syntax-e #'action) 'sell))
        (raise-syntax-error #f "Expected #:action to be either 'buy' or 'sell'" #'action))
+
+     (unless (or (eq? (syntax-e #'type) 'call)
+                 (eq? (syntax-e #'type) 'put))
+       (raise-syntax-error #f "Expected #:type to be either 'call' or 'put'" #'type))
      
-           (let ([action (if (eq? (syntax-e #'action) 'buy) #''buy #''sell)]
-           [type (if (attribute call) #''call #''put)])
+     (let ([action (if (eq? (syntax-e #'action) 'buy)  #''buy  #''sell)]
+           [type   (if (eq? (syntax-e #'type)   'call) #''call #''put)])
      
         
        #`(define name
-           (let* ([strike-val strike] 
-                  [premium
-                   (calculate-premium strike-val price expiration rate vol
-                                      #,type)]
-                  [strategy
-                   (graph-strategy strike-val premium quantity #,type
-                                   #,action)])
-             (case-lambda
-               [(x) (if (eq? x 'get-strike)
-                        strike-val
-                        (strategy x))]))))]))
+           (lambda (current-price)
+             (let* ([strike-val strike] 
+                    [premium
+                     (calculate-premium strike-val current-price expiration rate vol
+                                        #,type)]
+                    [strategy
+                     (graph-strategy strike-val premium quantity #,type
+                                     #,action)])
+               (case-lambda
+                 [(x) (if (eq? x 'get-strike)
+                          strike-val
+                          (strategy x))])))))]))
 
-;; Define syntax for creating a strategy with an arbitrary number of options
-(define-syntax-rule (define-option-strategy name option ...)
-  (define name (lambda () (graph-strategy-multi (list option ...)))))
+;; Modified strategy definition to include current price
+(define-syntax-rule (define-option-strategy name #:current-price price option ...)
+  (define name 
+    (let ([option-fns (list (option price) ...)])
+      (lambda () (graph-strategy-multi option-fns)))))
 
-;; Function to graph multiple options together
+;; Function to graph multiple options together (unchanged)
 (define (graph-strategy-multi options)
-    (define strikes (map (lambda (option-fn) 
+  (define strikes (map (lambda (option-fn) 
                          (option-fn 'get-strike)) 
                        options))
   (define min-price (apply min strikes))
@@ -95,25 +102,27 @@
                                             (+ max-price horizontal-margins) 
                                             1))))
   (define y-margin (* 0.1 (- y-max y-min)))
+  (define x-label "Stock Price")
+  (define y-label "Profit")
   (plot (function payoff
                   (- min-price horizontal-margins)
                   (+ max-price horizontal-margins))
         #:title "Option Strategy Payoff"
+        #:x-label x-label	 
+ 	#:y-label y-label
         #:y-min (- y-min y-margin)
         #:y-max (+ y-max y-margin)))
 
-;; Example Usage:
-;; Buying a call option with a strike price of $100
+;; Example Usage - now with current price at the strategy level:
+;; Define options without current price
 (define-option call-buy-1
   #:action buy
   #:type call
   #:quantity 1
   #:strike 100
-  #:current-price 104
   #:expiration 0.1
   #:risk-free-rate 0.05
   #:volatility 0.2)
-
 
 ;; Selling a call option with a strike price of $105
 (define-option call-sell-2
@@ -121,7 +130,6 @@
   #:type call
   #:quantity 1
   #:strike 105
-  #:current-price 104
   #:expiration 0.1
   #:risk-free-rate 0.05
   #:volatility 0.2)
@@ -132,38 +140,36 @@
   #:type put
   #:quantity 1
   #:strike 95
-  #:current-price 101
   #:expiration 0.01
   #:risk-free-rate 0.05
   #:volatility 0.2)
 
-
-;; Simple Call
+;; Simple Call with current price of 104
 (define-option-strategy simple-call
+  #:current-price 104
   call-buy-1)
 
-;; Simple Short Call
-
+;; Simple Short Call with current price of 104
 (define-option-strategy simple-short-call
+  #:current-price 104
   call-sell-2)
 
-;; Debit Spread
+;; Debit Spread with current price of 104
 (define-option-strategy call-debit-spread
+  #:current-price 104
   call-buy-1
   call-sell-2)
 
-
-;; Straddle
+;; Straddle with current price of 101
 (define-option-strategy straddle
+  #:current-price 101
   call-buy-1
   put-buy-1)
-
 
 ;; Execute the strategies
 (simple-call)
 (simple-short-call)
 (call-debit-spread)
-(straddle)
 
 
 #|
