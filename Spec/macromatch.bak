@@ -9,7 +9,6 @@
 (syntax-spec
  ;; Binding class for pattern variables
  (binding-class racket-var #:binding-space pattern-binding)
- 
 
  ;; Pattern nonterminal with explicit exports
  (nonterminal/exporting pat
