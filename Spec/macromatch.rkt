@@ -3,8 +3,6 @@
          syntax/parse/define
          (for-syntax syntax/parse syntax-spec-v3))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Core DSL definition using syntax-spec
 
 (syntax-spec
  (binding-class racket-var #:binding-space pattern-binding)
@@ -29,9 +27,6 @@
   #`(begin
       (printf "Compiling macromatch: ~a\n" (syntax->datum #'(macromatch e [p e_body] ...)))
       (minimatch e [p e_body] ...))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Pattern Macros using define-dsl-syntax
 
 (begin-for-syntax
   (define-syntax-class datum
@@ -73,20 +68,11 @@
      (transform #'qq)]))
 
 
-
-
-
-
-
-
 (begin-for-syntax
   (define (inspect-binding-space stx)
     (printf "Inspecting: ~a\n" (syntax->datum stx))
     (printf "Binding space marks: ~a\n" (syntax-debug-info stx))))
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Compiler to minimatch (using provided inlined.rkt)
 
 (define-syntax minimatch
   (lambda (stx)
@@ -108,9 +94,9 @@
   (lambda (stx)
     (syntax-parse stx
       [(do-match target pat body fail)
-       (printf "do-match received: ~a\n" (syntax->datum #'pat)) ; For debugging
+       (printf "do-match received: ~a\n" (syntax->datum #'pat))
        (syntax-parse #'pat
-         #:datum-literals (cons ==)  ; Match cons and == by symbolic name
+         #:datum-literals (cons ==)
          [(cons p1 p2)
           #'(if (pair? target)
                 (let ([car-v (car target)]
@@ -154,7 +140,7 @@
                        (lambda (exn)
                          (displayln (format "Caught error: ~a" (exn-message exn)))
                          #'(error "partial result"))])
-        (quasiquote-pat-transform stx)))  ; suppose you’ve factored out your transform
+        (quasiquote-pat-transform stx)))
     )
 
   (define qq-transformed
