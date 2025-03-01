@@ -7,11 +7,9 @@
 ;; Core DSL definition using syntax-spec
 
 (syntax-spec
- ;; Binding class for pattern variables
  (binding-class racket-var #:binding-space pattern-binding)
  
 
- ;; Pattern nonterminal with explicit exports
  (nonterminal/exporting pat
                         #:binding-space pattern-binding
                         #:allow-extension (pattern-macro)
@@ -22,11 +20,9 @@
                         (cons p:pat q:pat)
                         #:binding [(re-export p) (re-export q)])
 
- ;; Extension class for pattern macros
  (extension-class pattern-macro
                   #:binding-space pattern-binding)
 
- ;; Host interface: compile macromatch to minimatch
  (host-interface/expression
   (macromatch e:racket-expr [p:pat e_body:racket-expr] ...)
   #:binding (scope (import p) ... e_body ...)
@@ -38,11 +34,9 @@
 ;; Pattern Macros using define-dsl-syntax
 
 (begin-for-syntax
-  ;; Syntax class for literal data
   (define-syntax-class datum
     (pattern d #:when (not (identifier? #'d)))))
 
-;; Macros that expand to core patterns
 (define-dsl-syntax quote-pat pattern-macro
   (syntax-parser
     [(_ d:datum)
@@ -189,6 +183,7 @@
   (check-equal? (g2 '(1))   "matched one")
   (check-equal? (g2 '(1 2)) "matched two")
 
+  ;; Quasiquote
   (define (g3 v)
     (macromatch v
                 [`(1 ,a)   "matched one"]
