@@ -1,0 +1,59 @@
+#lang racket
+
+(require (for-syntax racket/syntax racket/list))
+
+(define-syntax (define-option-strategy-with-breakeven stx)
+  (syntax-case stx (buy sell) ; declare buy and sell as literal identifiers
+    [(_ name leg ... )
+     (with-syntax ([(payoff-exprs ...)
+                    ;; Map each leg to its payoff expression
+                    (map (lambda (leg)
+                           (syntax-case leg (buy sell)
+                             [(buy qty type #:strike strike)
+                              (with-syntax ([formula
+                                             (if (equal? (syntax-e #'type) 'call)
+                                                 #'(max (- S strike) 0)
+                                                 #'(max (- strike S) 0))])
+                                #`(* qty formula))]
+                             [(sell qty type #:strike strike)
+                              (with-syntax ([formula
+                                             (if (equal? (syntax-e #'type) 'call)
+                                                 #'(max (- S strike) 0)
+                                                 #'(max (- strike S) 0))])
+                                #`(- (* qty formula)))]))
+                         (syntax->list #'(leg ...)))]
+                   ;; Create a new identifier for the breakeven function:
+                   [breakeven-name (datum->syntax
+                                    #'name
+                                    (string->symbol
+                                     (string-append (symbol->string (syntax-e #'name))
+                                                    "-breakeven")))])
+       #`(begin
+           ;; Define the payoff function that computes profit/loss for a given S.
+           (define (name S)
+             (+ payoff-exprs ...))
+           ;; Define the breakeven finder function using the new identifier.
+           (define (breakeven-name)
+             (let loop ([S 50.0] [breakevens '()])
+               (cond
+                 [(> S 150.0) (reverse breakevens)]
+                 [else
+                  (loop (+ S 0.1)
+                        (if (< (abs (name S)) 1e-6)
+                            (cons S breakevens)
+                            breakevens))])))))]))
+
+
+;; Define an Iron Condor strategy.
+(define-option-strategy-with-breakeven iron-condor
+  (buy 1 put #:strike 90)
+  (sell 1 put #:strike 95)
+  (sell 1 call #:strike 105)
+  (buy 1 call #:strike 110))
+
+;; Test the payoff function at S = 100.
+(displayln (iron-condor 105))   ;; Computes payoff at S=100
+
+;; Test the breakeven finder.
+(displayln (iron-condor-breakeven)) ;; Should output the list of breakeven points
+
