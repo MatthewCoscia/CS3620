@@ -17,7 +17,7 @@
                                    (integer? (syntax-e #'q))
                                    (number? (syntax-e #'q)) 
                                    (positive? (syntax-e #'q))))
-             "quantity must be a positive whole number literal")))
+             "quantity must be a positive whole number literal"))
 
   (define-syntax-class positive-strike
     #:description "positive strike"
@@ -25,12 +25,12 @@
              #:fail-when (not (and
                                    (number? (syntax-e #'q)) 
                                    (positive? (syntax-e #'q))))
-             "quantity must be a positive number literal"))
+             "strike must be a positive number literal")))
 
 (define-syntax (define-option-strategy stx)
   (syntax-parse stx
     [(_ strategy-name:id 
-        (action:action positive-whole-qty type:option-type #:strike
+        (action:action qty:positive-whole-qty type:option-type #:strike
                        strike:positive-strike) ...)
      
      #:with (action-sym ...) (map (λ (a) (datum->syntax #f (syntax->datum a))) 
