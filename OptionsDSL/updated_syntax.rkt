@@ -46,7 +46,7 @@
         #:safe-mode safe:safe-mode
         (action:action qty:positive-whole-qty 
                        type:option-type 
-                       #:strike s:expr
+                       #:strike s:expr 
                        #:expiration exp:number) ...)
      
      #:with (action-sym ...) (map (λ (a) (datum->syntax #f (syntax->datum a))) 
@@ -54,20 +54,32 @@
      #:with (type-sym ...) (map (λ (t) (datum->syntax #f (syntax->datum t))) 
                                 (syntax->list #'(type ...)))
      
-     ;; Check for naked short calls when safe mode is enabled
+     ;; Combined check for both naked calls and puts
      #:fail-when (and (equal? (syntax-e #'safe) #t)
-                      (for/or ([a (syntax->list #'(action ...))]
-                               [t (syntax->list #'(type ...))])
-                        (and (eq? (syntax-e a) 'sell)
-                             (eq? (syntax-e t) 'call)
-                             ;; Check if there's no matching long position in the same stock
-                             (not (for/or ([a2 (syntax->list #'(action ...))]
-                                           [t2 (syntax->list #'(type ...))]
-                                           [q2 (syntax->list #'(qty ...))])
-                                    (and (eq? (syntax-e a2) 'buy)
-                                         (eq? (syntax-e t2) 'call)
-                                         (>= (syntax-e q2) 1)))))))
-                "Naked short calls are not allowed in safe mode"
+                      (or
+                       ;; Naked puts check
+                       (for/or ([a (syntax->list #'(action ...))]
+                                [t (syntax->list #'(type ...))])
+                         (and (eq? (syntax-e a) 'sell)
+                              (eq? (syntax-e t) 'put)
+                              (not (for/or ([a2 (syntax->list #'(action ...))]
+                                            [t2 (syntax->list #'(type ...))]
+                                            [q2 (syntax->list #'(qty ...))])
+                                     (and (eq? (syntax-e a2) 'buy)
+                                          (eq? (syntax-e t2) 'put)
+                                          (>= (syntax-e q2) 1))))))
+                       ;; Naked calls check
+                       (for/or ([a (syntax->list #'(action ...))]
+                                [t (syntax->list #'(type ...))])
+                         (and (eq? (syntax-e a) 'sell)
+                              (eq? (syntax-e t) 'call)
+                              (not (for/or ([a2 (syntax->list #'(action ...))]
+                                            [t2 (syntax->list #'(type ...))]
+                                            [q2 (syntax->list #'(qty ...))])
+                                     (and (eq? (syntax-e a2) 'buy)
+                                          (eq? (syntax-e t2) 'call)
+                                          (>= (syntax-e q2) 1))))))))
+                   "Naked short calls or puts are not allowed in safe mode"
      
      #'(define strategy-name
          (hash 'ticker 'ticker-value
@@ -75,10 +87,31 @@
                'safe-mode safe
                'legs (list (list 'action-sym qty 'type-sym s 'expiration exp) ...)))]))
 
+;; Example that would error
+(define-option-strategy risky-strat
+  #:ticker 'TSLA
+  #:current-price 250.50
+  #:safe-mode #t
+  (buy 1 call #:strike 300 #:expiration 30)  ;; Naked call
+  (sell 1 call  #:strike 200 #:expiration 30)) ;; Naked put
+
+;; Valid covered strategy
+(define-option-strategy safe-strat
+  #:ticker 'GOOG
+  #:current-price 145.75
+  #:safe-mode #t
+  (sell 1 call #:strike 150 #:expiration 30)
+  (buy  1 call #:strike 150 #:expiration 30)  ;; Covers call
+  (sell 1 put  #:strike 140 #:expiration 30)
+  (buy  1 put  #:strike 140 #:expiration 30)) ;; Covers put
+
+
+
 ;; Example usage
+#|
 (define-option-strategy AAPL-strat
   #:ticker 'AAPL
   #:current-price 182.52
   #:safe-mode #t
-  (sell  1 call  #:strike 200 #:expiration 20)
-  (buy   1 call  #:strike 200 #:expiration 20))
+  (sell  1 call  #:strike 200 #:expiration 20))
+|#
