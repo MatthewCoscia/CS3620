@@ -1,5 +1,6 @@
 #lang racket
-(require (for-syntax syntax/parse))
+(require (for-syntax syntax/parse)
+         racket/date)
 
 (begin-for-syntax
   (define-syntax-class action
@@ -9,45 +10,49 @@
     (pattern (~or call put)))
 
   (define-syntax-class positive-whole-qty
-    #:description "positive whole quantity"
+    #:description "positive whole number"
     (pattern q:expr
-             #:fail-when (not (and
-                                   (integer? (syntax-e #'q))
-                                   (number? (syntax-e #'q)) 
-                                   (positive? (syntax-e #'q))))
-             "quantity must be a positive whole number literal"))
+             #:fail-when (let ([v (syntax-e #'q)])
+                           (not (and (exact-positive-integer? v)
+                                     (<= v 3650))))
+             "must be positive integer ≤ 3650"))
 
-  (define-syntax-class positive-strike
-    #:description "positive strike"
-    (pattern q:expr
-             #:fail-when (not (and
-                                   (number? (syntax-e #'q)) 
-                                   (positive? (syntax-e #'q))))
-             "strike must be a positive number literal")))
+  (define-syntax-class expiration-spec
+    #:description "expiration date specification"
+    (pattern (~or (y:number m:number d:number)
+                  days-till:positive-whole-qty))))
+
+(define (make-expiration-date spec)
+  (cond
+    [(list? spec) (seconds->date (find-seconds 0 0 0 (third spec) (second spec) (first spec)))]
+    [else (let ([d (current-date)])
+            (seconds->date (+ (date->seconds d) (* spec 86400))))]))
 
 (define-syntax (define-option-strategy stx)
   (syntax-parse stx
     [(_ strategy-name:id 
-        #:ticker ticker:id
-        #:ticker-price current-price:expr
-        (action:action qty:positive-whole-qty
-                       type:option-type
-                       #:strike strike:positive-strike) ...)
+        #:ticker ticker:expr
+        #:current-price cp:expr
+        (action:action qty:positive-whole-qty 
+                       type:option-type 
+                       #:strike s:expr
+                       #:expiration exp:expiration-spec) ...)
      
-     #:with ticker-symbol (datum->syntax #'ticker (symbol->string (syntax->datum #'ticker)))
+       
      #:with (action-sym ...) (map (λ (a) (datum->syntax #f (syntax->datum a))) 
                                   (syntax->list #'(action ...)))
      #:with (type-sym ...) (map (λ (t) (datum->syntax #f (syntax->datum t))) 
                                 (syntax->list #'(type ...)))
+     #:with (exp-spec ...) (syntax->list #'(exp ...))
      #'(define strategy-name
-         (hash 'ticker ticker-symbol
-               'current-price current-price
-               'legs (list (list 'action-sym qty 'type-sym strike) ...)))]))
+         (hash 'ticker ticker
+               'current-price cp
+               'legs (list (list 'action-sym qty 'type-sym s 
+                               (make-expiration-date (list exp-spec))) ...)))]))
 
-
-(define-option-strategy my-strat
-  #:ticker AAPL
-  #:ticker-price 100
-  (buy 1 call #:strike 100)
-  (sell 1 call #:strike 105)
-  (buy 1 put #:strike 95))
+;; Example usage
+(define-option-strategy AAPL-strat
+  #:ticker 'AAPL
+  #:current-price 182.52
+  (buy 1 call #:strike 200 #:expiration (2025 12 19))  ; Absolute date
+  (sell 1 put #:strike 200  #:expiration (2025 12 19) ))
