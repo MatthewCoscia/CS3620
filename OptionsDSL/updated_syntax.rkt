@@ -13,18 +13,37 @@
     #:description "positive whole number"
     (pattern q:expr
              #:fail-when (let ([v (syntax-e #'q)])
-                           (not (and (exact-positive-integer? v)
-                                     (<= v 3650))))
-             "must be positive integer ≤ 3650")))
-
-
-
+                           (not (exact-positive-integer? v)))
+             "must be positive integer"))
+  
+  (define-syntax-class ticker-symbol
+    #:description "ticker symbol"
+    (pattern t:expr
+             #:when (let ([v (syntax->datum #'t)])
+                      (and (pair? v) 
+                           (eq? (car v) 'quote)
+                           (symbol? (cadr v))))
+             #:with ticker-value (let ([v (syntax->datum #'t)])
+                                   (cadr v))))
+  
+  (define-syntax-class positive-price
+    #:description "positive price"
+    (pattern p:expr
+             #:fail-when (let ([v (syntax-e #'p)])
+                           (and (number? v)
+                                (not (positive? v))))
+             "price must be positive"))
+             
+  (define-syntax-class safe-mode
+    #:description "safety mode setting"
+    (pattern (~or #t #f))))
 
 (define-syntax (define-option-strategy stx)
   (syntax-parse stx
     [(_ strategy-name:id 
-        #:ticker ticker:expr
-        #:current-price cp:expr
+        #:ticker ticker:ticker-symbol
+        #:current-price cp:positive-price
+        #:safe-mode safe:safe-mode
         (action:action qty:positive-whole-qty 
                        type:option-type 
                        #:strike s:expr
@@ -34,16 +53,32 @@
                                   (syntax->list #'(action ...)))
      #:with (type-sym ...) (map (λ (t) (datum->syntax #f (syntax->datum t))) 
                                 (syntax->list #'(type ...)))
-     #:with (exp-spec ...) (syntax->list #'(exp ...))
+     
+     ;; Check for naked short calls when safe mode is enabled
+     #:fail-when (and (equal? (syntax-e #'safe) #t)
+                      (for/or ([a (syntax->list #'(action ...))]
+                               [t (syntax->list #'(type ...))])
+                        (and (eq? (syntax-e a) 'sell)
+                             (eq? (syntax-e t) 'call)
+                             ;; Check if there's no matching long position in the same stock
+                             (not (for/or ([a2 (syntax->list #'(action ...))]
+                                           [t2 (syntax->list #'(type ...))]
+                                           [q2 (syntax->list #'(qty ...))])
+                                    (and (eq? (syntax-e a2) 'buy)
+                                         (eq? (syntax-e t2) 'call)
+                                         (>= (syntax-e q2) 1)))))))
+                "Naked short calls are not allowed in safe mode"
+     
      #'(define strategy-name
-         (hash 'ticker ticker
+         (hash 'ticker 'ticker-value
                'current-price cp
+               'safe-mode safe
                'legs (list (list 'action-sym qty 'type-sym s 'expiration exp) ...)))]))
-
 
 ;; Example usage
 (define-option-strategy AAPL-strat
   #:ticker 'AAPL
   #:current-price 182.52
-  (buy 1 call #:strike 200 #:expiration 20)
-  (sell 1 put #:strike 200 #:expiration 20 ))
+  #:safe-mode #t
+  (sell  1 call #:strike 200 #:expiration 20)
+  (sell 1 put  #:strike 200 #:expiration 20))
