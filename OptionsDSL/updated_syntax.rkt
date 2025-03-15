@@ -10,9 +10,8 @@
   (define-syntax-class option-type
     (pattern (~or call put)))
 
-  ; Move positive-qty inside begin-for-syntax
-  (define-syntax-class positive-qty
-    #:description "positive quantity"
+  (define-syntax-class positive-whole-qty
+    #:description "positive whole quantity"
     (pattern q:expr
              #:fail-when (not (and
                                    (integer? (syntax-e #'q))
@@ -20,10 +19,19 @@
                                    (positive? (syntax-e #'q))))
              "quantity must be a positive whole number literal")))
 
+  (define-syntax-class positive-strike
+    #:description "positive strike"
+    (pattern q:expr
+             #:fail-when (not (and
+                                   (number? (syntax-e #'q)) 
+                                   (positive? (syntax-e #'q))))
+             "quantity must be a positive number literal"))
+
 (define-syntax (define-option-strategy stx)
   (syntax-parse stx
     [(_ strategy-name:id 
-        (action:action qty:positive-qty type:option-type #:strike strike:expr) ...)
+        (action:action positive-whole-qty type:option-type #:strike
+                       strike:positive-strike) ...)
      
      #:with (action-sym ...) (map (λ (a) (datum->syntax #f (syntax->datum a))) 
                                   (syntax->list #'(action ...)))
