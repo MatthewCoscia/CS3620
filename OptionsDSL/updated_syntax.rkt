@@ -29,7 +29,7 @@
   (syntax-parse stx
     [(_ strategy-name:id 
         #:ticker ticker:id
-        #:current-price current-price:expr
+        #:ticker-price current-price:expr
         (action:action qty:positive-whole-qty
                        type:option-type
                        #:strike strike:positive-strike) ...)
@@ -47,7 +47,7 @@
 
 (define-option-strategy my-strat
   #:ticker AAPL
-  #:current-price 100
+  #:ticker-price 100
   (buy 1 call #:strike 100)
   (sell 1 call #:strike 105)
   (buy 1 put #:strike 95))
