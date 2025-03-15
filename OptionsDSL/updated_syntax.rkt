@@ -80,5 +80,5 @@
   #:ticker 'AAPL
   #:current-price 182.52
   #:safe-mode #t
-  (sell  1 call #:strike 200 #:expiration 20)
-  (sell 1 put  #:strike 200 #:expiration 20))
+  (sell  1 call  #:strike 200 #:expiration 20)
+  (buy   1 call  #:strike 200 #:expiration 20))
