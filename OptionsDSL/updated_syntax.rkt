@@ -57,7 +57,6 @@
      ;; Combined check for both naked calls and puts
      #:fail-when (and (equal? (syntax-e #'safe) #t)
                       (or
-                       ;; Naked puts check
                        (for/or ([a (syntax->list #'(action ...))]
                                 [t (syntax->list #'(type ...))])
                          (and (eq? (syntax-e a) 'sell)
@@ -68,7 +67,7 @@
                                      (and (eq? (syntax-e a2) 'buy)
                                           (eq? (syntax-e t2) 'put)
                                           (>= (syntax-e q2) 1))))))
-                       ;; Naked calls check
+
                        (for/or ([a (syntax->list #'(action ...))]
                                 [t (syntax->list #'(type ...))])
                          (and (eq? (syntax-e a) 'sell)
