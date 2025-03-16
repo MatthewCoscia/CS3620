@@ -44,7 +44,7 @@
   (syntax-parse stx
     [(_ name:id
         #:action action:id
-        #:type (~or call:id put:id)
+         #:type type:id
         #:quantity quantity:expr 
         #:strike strike:expr 
         #:current-price price:expr
@@ -54,9 +54,14 @@
      (unless (or (eq? (syntax-e #'action) 'buy)
                  (eq? (syntax-e #'action) 'sell))
        (raise-syntax-error #f "Expected #:action to be either 'buy' or 'sell'" #'action))
+
+     (unless (or (eq? (syntax-e #'type) 'call)
+                 (eq? (syntax-e #'type) 'put))
+       (raise-syntax-error #f "Expected #:type to be either 'call' or 'put'" #'type))
      
-           (let ([action (if (eq? (syntax-e #'action) 'buy) #''buy #''sell)]
-           [type (if (attribute call) #''call #''put)])
+          
+(let ([action (if (eq? (syntax-e #'action) 'buy)  #''buy  #''sell)]
+           [type   (if (eq? (syntax-e #'type)   'call) #''call #''put)])
      
         
        #`(define name
@@ -84,6 +89,8 @@
   (define min-price (apply min strikes))
   (define max-price (apply max strikes))
   (define horizontal-margins (* (/ (+ max-price min-price) 2) 0.1))
+    (define x-label "Stock Price")
+  (define y-label "Profit")
   (define (payoff x)
     (apply + (map (lambda (option-fn) (option-fn x)) options)))
 
@@ -95,10 +102,14 @@
                                             (+ max-price horizontal-margins) 
                                             1))))
   (define y-margin (* 0.1 (- y-max y-min)))
+  (define x-label "Stock Price")
+  (define y-label "Profit")
   (plot (function payoff
                   (- min-price horizontal-margins)
                   (+ max-price horizontal-margins))
         #:title "Option Strategy Payoff"
+        #:x-label x-label	 
+ 	#:y-label y-label
         #:y-min (- y-min y-margin)
         #:y-max (+ y-max y-margin)))
 
@@ -165,10 +176,3 @@
 (call-debit-spread)
 (straddle)
 
-
-#|
-Option Pricing
-Black-Scholes Model
-Binomial Options Pricing Model:
-Monte Carlo Simulation:
-|#

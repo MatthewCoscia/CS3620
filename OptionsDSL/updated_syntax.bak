@@ -1,7 +1,6 @@
 #lang racket
 (require (for-syntax syntax/parse)
-         racket/date
-         plot)
+         racket/date)
 
 (begin-for-syntax
   (define-syntax-class action
@@ -56,11 +55,6 @@
                                 (syntax->list #'(type ...)))
      
      ;; Combined check for both naked calls and puts
-     #:fail-when (for/or ([exp (syntax->list #'(exp ...))])
-              (or (< (syntax-e exp) 7)
-                  (> (syntax-e exp) 365)))
-            "Expiration date must be between 7 and 365 days"
-
      #:fail-when (and (equal? (syntax-e #'safe) #t)
                       (or
                        (for/or ([a (syntax->list #'(action ...))]
@@ -92,75 +86,6 @@
                'safe-mode safe
                'legs (list (list 'action-sym qty 'type-sym s 'expiration exp) ...)))]))
 
-(define (parse-options strategy)
-  (map (lambda (leg)
-         (match leg
-           [(list action qty type strike expiration-key exp)
-            (hash 'action action
-                  'quantity qty
-                  'type type
-                  'strike strike
-                  'expiration exp)]))
-       (hash-ref strategy 'legs)))
-
-
-
-(define (option-payoff stock-price strike action type quantity premium)
-  (let* ([raw-payoff (cond
-                        [(eq? type 'call) (max 0 (- stock-price strike))]
-                        [(eq? type 'put)  (max 0 (- strike stock-price))])]
-         [adjusted-payoff (* quantity (- raw-payoff premium))])
-    (if (eq? action 'buy)
-        adjusted-payoff
-        (- adjusted-payoff))))
-
-(define (total-strategy-payoff strategy stock-price)
-  (let ([legs (parse-options strategy)])
-    (apply +
-           (map (lambda (leg)
-                  (option-payoff stock-price
-                                 (hash-ref leg 'strike)
-                                 (hash-ref leg 'action)
-                                 (hash-ref leg 'type)
-                                 (hash-ref leg 'quantity)
-                                 0)) ;; Assume premium is 0 for now
-                legs))))
-
-(define (find-breakeven strategy min-price max-price step)
-  (let loop ([price min-price] [breakevens '()])
-    (if (> price max-price)
-        (reverse breakevens)
-        (let ([profit (total-strategy-payoff strategy price)]
-              [next-profit (total-strategy-payoff strategy (+ price step))])
-          (if (or (and (>= profit 0) (< next-profit 0))
-                  (and (<= profit 0) (> next-profit 0)))
-              (loop (+ price step) (cons price breakevens))
-              (loop (+ price step) breakevens))))))
-
-(define (graph-strategy strategy)
-  (define min-price (- (hash-ref strategy 'current-price) 50))
-  (define max-price (+ (hash-ref strategy 'current-price) 50))
-  (define step 1)
-
-  ;; Find breakeven points
-  (define breakevens (find-breakeven strategy min-price max-price step))
-
-  ;; Define payoff function
-  (define (payoff x) (total-strategy-payoff strategy x))
-
-  ;; Plot main payoff function + breakeven points
-  (plot (list
-         (function payoff min-price max-price)
-         (points (map (lambda (x) (vector x (payoff x))) breakevens)
-                 #:sym 'circle
-                 #:size 8
-                 #:color "red"))
-        #:title "Option Strategy Payoff"
-        #:x-label "Stock Price"
-        #:y-label "Profit/Loss"))
-
-
-
 ;; Example that would error
 (define-option-strategy risky-strat
   #:ticker 'TSLA
@@ -178,14 +103,6 @@
   (buy  1 call #:strike 150 #:expiration 30)  ;; Covers call
   (sell 1 put  #:strike 140 #:expiration 30)
   (buy  1 put  #:strike 140 #:expiration 30)) ;; Covers put
-
-(define-option-strategy bullish-strat
-  #:ticker 'AAPL
-  #:current-price 145.75
-  #:safe-mode #t
-  (buy 1 call #:strike 140 #:expiration 30)  ;; Lower strike, long call
-  (sell 1 call #:strike 150 #:expiration 30)) ;; Higher strike, short call
-
 
 
 

@@ -102,8 +102,6 @@
                                             (+ max-price horizontal-margins) 
                                             1))))
   (define y-margin (* 0.1 (- y-max y-min)))
-  (define x-label "Stock Price")
-  (define y-label "Profit")
   (plot (function payoff
                   (- min-price horizontal-margins)
                   (+ max-price horizontal-margins))
