@@ -45,15 +45,24 @@
         #:ticker ticker:ticker-symbol
         #:current-price cp:positive-price
         #:safe-mode safe:safe-mode
+        (~optional [~seq #:volatility vol:expr] #:defaults ([vol #'0.2])) ;; Default Volatility: 20%
+        (~optional [~seq #:risk-free-rate rfr:expr] #:defaults ([rfr #'0.05])) ;; Default Risk-Free Rate: 5%
         (action:action qty:positive-whole-qty 
                        type:option-type 
                        #:strike s:expr 
-                       #:expiration exp:number) ...)
+                       #:expiration exp:number
+                       (~optional [~seq #:premium p:expr] #:defaults ([p #'#f]))) ...)
      
      #:with (action-sym ...) (map (λ (a) (datum->syntax #f (syntax->datum a))) 
                                   (syntax->list #'(action ...)))
      #:with (type-sym ...) (map (λ (t) (datum->syntax #f (syntax->datum t))) 
                                 (syntax->list #'(type ...)))
+     #:with (premium-sym ...)
+     (map (λ (p-stx)
+            (if (equal? (syntax->datum p-stx) #f)
+                #'#f  ;; Flag for later calculation
+                p-stx))
+          (syntax->list #'(p ...)))
      
      ;; Combined check for both naked calls and puts
      #:fail-when (for/or ([exp (syntax->list #'(exp ...))])
@@ -87,35 +96,51 @@
                    "Naked short calls or puts are not allowed in safe mode"
      
      #'(define strategy-name
-         (hash 'ticker 'ticker-value
-               'current-price cp
-               'safe-mode safe
-               'legs (list (list 'action-sym qty 'type-sym s 'expiration exp) ...)))]))
+        (hash 'ticker 'ticker-value
+              'current-price cp
+              'safe-mode safe
+              'volatility vol
+              'risk-free-rate rfr
+              'legs (list (list 'action-sym qty 'type-sym s exp p) ...)))]))
 
 (define (parse-options strategy)
   (map (lambda (leg)
          (match leg
-           [(list action qty type strike expiration-key exp)
+           [(list action qty type strike exp-days premium)
             (hash 'action action
                   'quantity qty
                   'type type
                   'strike strike
-                  'expiration exp)]))
+                  'expiration exp-days
+                  'premium premium)]))
        (hash-ref strategy 'legs)))
 
 
 
-(define (option-payoff stock-price strike action type quantity premium)
-  (let* ([raw-payoff (cond
-                        [(eq? type 'call) (max 0 (- stock-price strike))]
-                        [(eq? type 'put)  (max 0 (- strike stock-price))])]
-         [adjusted-payoff (* quantity (- raw-payoff premium))])
+
+(define (option-payoff stock-price strike action type quantity premium 
+                       risk-free-rate volatility expiration-days current-price)
+  (let* ([T (/ expiration-days 365.0)]  ;; Convert days to years
+         [actual-premium (if (equal? premium #f)
+                             (calculate-premium strike current-price T 
+                                                risk-free-rate volatility type)
+                             premium)]  ;; If user provided a premium, use it.
+         [raw-payoff (cond
+                       [(eq? type 'call) (max 0 (- stock-price strike))]
+                       [(eq? type 'put)  (max 0 (- strike stock-price))])]
+         [adjusted-payoff (* quantity (- raw-payoff actual-premium))])
+    
     (if (eq? action 'buy)
         adjusted-payoff
         (- adjusted-payoff))))
 
+
+
 (define (total-strategy-payoff strategy stock-price)
-  (let ([legs (parse-options strategy)])
+  (let* ([legs (parse-options strategy)]
+         [current-price (hash-ref strategy 'current-price)]
+         [volatility (hash-ref strategy 'volatility)]
+         [risk-free-rate (hash-ref strategy 'risk-free-rate)])
     (apply +
            (map (lambda (leg)
                   (option-payoff stock-price
@@ -123,8 +148,14 @@
                                  (hash-ref leg 'action)
                                  (hash-ref leg 'type)
                                  (hash-ref leg 'quantity)
-                                 0)) ;; Assume premium is 0 for now
+                                 (hash-ref leg 'premium)
+                                 risk-free-rate
+                                 volatility
+                                 (hash-ref leg 'expiration)
+                                 current-price))
                 legs))))
+
+
 
 (define (find-breakeven strategy min-price max-price step)
   (let loop ([price min-price] [breakevens '()])
@@ -160,6 +191,27 @@
         #:y-label "Profit/Loss"))
 
 
+(require math/special-functions)
+
+(define (cdf x)
+  (/ (+ 1 (erf (/ x (sqrt 2)))) 2))
+
+(define (black-scholes-call S K T r sigma)
+  (let* ([d1 (/ (+ (log (/ S K)) (* (+ r (/ (expt sigma 2) 2)) T))
+                (* sigma (sqrt T)))])
+    (- (* S (cdf d1)) (* K (exp (* (- r) T)) (cdf (- d1 (* sigma (sqrt T))))))))
+
+(define (black-scholes-put S K T r sigma)
+  (- (black-scholes-call S K T r sigma)
+     (* K (exp (* (- r) T)))))
+
+(define (calculate-premium strike price expiration risk-free-rate volatility type)
+  (if (eq? type 'call)
+      (black-scholes-call price strike expiration risk-free-rate volatility)
+      (black-scholes-put price strike expiration risk-free-rate volatility)))
+
+
+
 
 ;; Example that would error
 (define-option-strategy risky-strat
@@ -185,6 +237,25 @@
   #:safe-mode #t
   (buy 1 call #:strike 140 #:expiration 30)  ;; Lower strike, long call
   (sell 1 call #:strike 150 #:expiration 30)) ;; Higher strike, short call
+
+(define-option-strategy high-vol-strat
+  #:ticker 'AAPL
+  #:current-price 145.75
+  #:safe-mode #t
+  #:volatility 0.3  ;; ✅ 30% volatility
+  #:risk-free-rate 0.02  ;; ✅ 2% risk-free rate
+  (buy 1 call #:strike 140 #:expiration 30)
+  (sell 1 call #:strike 150 #:expiration 30))
+
+(define-option-strategy high-vol-strat-prem
+  #:ticker 'AAPL
+  #:current-price 145.75
+  #:safe-mode #t
+  #:volatility 0.3  ;; ✅ 30% volatility
+  #:risk-free-rate 0.02  ;; ✅ 2% risk-free rate
+  (buy 1 call #:strike 140 #:expiration 30 #:premium 5.00)
+  (sell 1 call #:strike 150 #:expiration 30 #:premium 5.00))
+
 
 
 
