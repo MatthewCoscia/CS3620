@@ -204,34 +204,35 @@
   (/ (+ 1 (erf (/ x (sqrt 2)))) 2))
 
 (define (black-scholes-call S K T r sigma)
-  (let* ([d1 (/ (+ (log (/ S K)) (* (+ r (/ (expt sigma 2) 2)) T))
-                (* sigma (sqrt T)))]
-         [d2 (- d1 (* sigma (sqrt T)))]
-         [Nd1 (cdf d1)]
-         [Nd2 (cdf d2)]
-         [discount-factor (exp (* (- r) T))]
-         [call-price (- (* S Nd1) (* K discount-factor Nd2))])
-    call-price))
+  (if (= sigma 0)
+      (let ([discounted-K (* K (exp (* (- r) T)))])
+        (max 0 (- S discounted-K)))
+      (let* ([d1 (/ (+ (log (/ S K)) (* (+ r (/ (expt sigma 2) 2)) T))
+                    (* sigma (sqrt T)))]
+             [d2 (- d1 (* sigma (sqrt T)))]
+             [Nd1 (cdf d1)]
+             [Nd2 (cdf d2)]
+             [discount-factor (exp (* (- r) T))])
+        (- (* S Nd1) (* K discount-factor Nd2)))))
 
 (define (black-scholes-put S K T r sigma)
-  (let* ([d1 (/ (+ (log (/ S K)) (* (+ r (/ (expt sigma 2) 2)) T))
-                (* sigma (sqrt T)))]
-         [d2 (- d1 (* sigma (sqrt T)))]
-         [Nd1 (cdf (- d1))]  
-         [Nd2 (cdf (- d2))]  
-         [discount-factor (exp (* (- r) T))]
-         [put-price (- (* K discount-factor Nd2) (* S Nd1))])
-    put-price))
+  (if (= sigma 0)
+      (let ([discounted-K (* K (exp (* (- r) T)))])
+        (max 0 (- discounted-K S)))
+      (let* ([d1 (/ (+ (log (/ S K)) (* (+ r (/ (expt sigma 2) 2)) T))
+                    (* sigma (sqrt T)))]
+             [d2 (- d1 (* sigma (sqrt T)))]
+             [Nd1 (cdf (- d1))]
+             [Nd2 (cdf (- d2))]
+             [discount-factor (exp (* (- r) T))])
+        (- (* K discount-factor Nd2) (* S Nd1)))))
 
 
 
 (define (calculate-premium strike price expiration risk-free-rate volatility type)
-  (displayln (format "Calculating premium: Strike=~a, Price=~a, Expiration=~a, rfr=~a, vol=~a, type=~a"
-                     strike price expiration risk-free-rate volatility type))
   (let ([premium (if (eq? type 'call)
                      (black-scholes-call price strike expiration risk-free-rate volatility)
                      (black-scholes-put price strike expiration risk-free-rate volatility))])
-    (displayln (format "Calculated premium: ~a" premium))
     premium))
 
 
@@ -295,32 +296,35 @@
 
 (define (≈ a b tol) (< (abs (- a b)) tol))
 
-(define (test-premium)
-  (define tol 0.001)  ; Tolerance for floating point comparison
-  
-  ;; 30-day options (T = 30/365 ≈ 0.0822)
-  (check-true (≈ (calculate-premium 140 145.75 0.0822 0.02 0.3 'call) 8.4563 tol)
-              "Call option price mismatch for strike=140")
-  
-  (check-true (≈ (calculate-premium 150 145.75 0.0822 0.02 0.3 'call) 3.3159 tol)
-              "Call option price mismatch for strike=150")
+(require rackunit/text-ui)
 
-  (check-true (≈ (calculate-premium 140 145.75 0.0822 0.02 0.3 'put) 2.4763 tol)
-              "Put option price mismatch for strike=140")
+(define tol 0.001)
 
-  (check-true (≈ (calculate-premium 150 145.75 0.0822 0.02 0.3 'put) 7.3195 tol)
-              "Put option price mismatch for strike=150")
+(define-test-suite premium-tests
+  (check-true (≈ (calculate-premium 140 145.75 0.0822 0.02 0.3 'call) 8.4563 tol))
+  (check-true (≈ (calculate-premium 150 145.75 0.0822 0.02 0.3 'call) 3.3159 tol))
+  (check-true (≈ (calculate-premium 140 145.75 0.0822 0.02 0.3 'put) 2.4763 tol))
+  (check-true (≈ (calculate-premium 150 145.75 0.0822 0.02 0.3 'put) 7.3195 tol))
+  (check-true (≈ (calculate-premium 140 145.75 1 0.05 0.2 'call) 18.5054 tol))
+  (check-true (≈ (calculate-premium 150 145.75 1 0.05 0.2 'put) 10.0195 tol)))
 
-  ;; 1-year options
-  (check-true (≈ (calculate-premium 140 145.75 1 0.05 0.2 'call) 18.5054 tol)
-              "Call option price mismatch for 1-year expiry")
+(define-test-suite payoff-tests
+  (check-= (option-payoff 110 100 'buy 'call 1 5 0 0 365 100) 5 0.001)
+  (check-= (option-payoff 110 100 'sell 'call 1 5 0 0 365 100) -5 0.001)
+  (check-= (option-payoff 90 100 'buy 'put 1 3 0 0 365 100) 7 0.001)
+  (check-= (option-payoff 90 100 'sell 'put 1 3 0 0 365 100) -7 0.001)
+  (check-= (option-payoff 90 100 'buy 'call 1 5 0 0 365 100) -5 0.001)
+  (check-= (option-payoff 100 100 'buy 'call 1 2 0 0 365 100) -2 0.001)
+  (check-= (option-payoff 100 100 'sell 'call 1 2 0 0 365 100) 2 0.001)
+  (check-= (option-payoff 110 100 'buy 'call 2 5 0 0 365 100) 10 0.001)
+  (check-= (option-payoff 105 100 'buy 'call 1 #f 0.05 0 365 100) 0.123 0.01))
 
-  (check-true (≈ (calculate-premium 150 145.75 1 0.05 0.2 'put) 10.0195 tol)
-              "Put option price mismatch for 1-year expiry")
-)
-
-(test-premium)
-
+;; Run all tests with verbose output
+(displayln "Running Premium Tests:")
+(run-tests premium-tests 'verbose)
+(newline)
+(displayln "Running Payoff Tests:")
+(run-tests payoff-tests 'verbose)
 
 
 ;; Example usage
