@@ -1,4 +1,28 @@
 #lang racket
+;;Grammar:
+
+#;
+(define-option-strategy strategy-name
+  #:ticker 'SYMBOL
+  #:current-price PRICE
+  #:safe-mode BOOLEAN
+  [#:volatility VOLATILITY]
+  [#:risk-free-rate RFR]
+  TRADE ...)
+
+#;
+(ACTION QTY TYPE #:strike STRIKE #:expiration EXPIRATION [#:premium PREMIUM])
+
+#;
+(graph-multiple-strategies
+  (list STRATEGY-PLOT ...)
+  [#:min-price MIN]
+  [#:max-price MAX])
+
+
+
+
+
 (require (for-syntax syntax/parse)
          racket/date
          plot
@@ -323,7 +347,7 @@
   #:safe-mode #t
   #:volatility 0.3  ;; 30% volatility
   #:risk-free-rate 0.02  ;; 2% risk-free rate
-  (buy 1 call #:strike 240 #:expiration 30 #:premium 5.00)
+  (buy 1 call #:strike 240 #:expiration 30 #:premium 7.50)
   (sell 1 call #:strike 320 #:expiration 30 #:premium 5.00))
 
 (graph-multiple-strategies
