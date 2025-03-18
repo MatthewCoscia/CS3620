@@ -124,15 +124,20 @@
          [actual-premium (if (equal? premium #f)
                              (calculate-premium strike current-price T 
                                                 risk-free-rate volatility type)
-                             premium)]  ;; If user provided a premium, use it.
+                             premium)]  ;; Use either Black-Scholes or manual premium
          [raw-payoff (cond
                        [(eq? type 'call) (max 0 (- stock-price strike))]
                        [(eq? type 'put)  (max 0 (- strike stock-price))])]
-         [adjusted-payoff (* quantity (- raw-payoff actual-premium))])
+         [intrinsic-value (* quantity raw-payoff)]  ;; Pure option value
+         [initial-cost (* quantity actual-premium)])  ;; Cost upfront
     
+    ;; Adjust for long and short call behavior
     (if (eq? action 'buy)
-        adjusted-payoff
-        (- adjusted-payoff))))
+        (- intrinsic-value initial-cost)  ;; Buying: Pay premium upfront
+        (- initial-cost intrinsic-value))))  ;; Selling: Limit gains beyond strike
+
+
+
 
 
 
@@ -206,9 +211,26 @@
      (* K (exp (* (- r) T)))))
 
 (define (calculate-premium strike price expiration risk-free-rate volatility type)
-  (if (eq? type 'call)
-      (black-scholes-call price strike expiration risk-free-rate volatility)
-      (black-scholes-put price strike expiration risk-free-rate volatility)))
+  (displayln (format "Calculating premium: Strike=~a, Price=~a, Expiration=~a, rfr=~a, vol=~a, type=~a"
+                     strike price expiration risk-free-rate volatility type))
+  (let ([premium (if (eq? type 'call)
+                     (black-scholes-call price strike expiration risk-free-rate volatility)
+                     (black-scholes-put price strike expiration risk-free-rate volatility))])
+    (displayln (format "Calculated premium: ~a" premium))
+    premium))
+
+
+(define (print-strategy strategy)
+  (define min-price (- (hash-ref strategy 'current-price) 50))
+  (define max-price (+ (hash-ref strategy 'current-price) 50))
+  (define step 1)
+
+  ;; Generate (stock price, payoff) pairs
+  (for ([price (in-range min-price (+ max-price step) step)])
+    (printf "Stock Price: ~a | Payoff: ~a\n"
+            price
+            (total-strategy-payoff strategy price))))
+
 
 
 
