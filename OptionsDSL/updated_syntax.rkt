@@ -248,7 +248,39 @@
             (total-strategy-payoff strategy price))))
 
 
+;; Helper 1: Calculate plot boundaries
+(define (get-plot-bounds strategies min-price max-price)
+  (if (or min-price max-price)
+      (values (or min-price (- (hash-ref (caar strategies) 'current-price) 50))
+              (or max-price (+ (hash-ref (caar strategies) 'current-price) 50)))
+      (let ([current-prices (map (λ (s) (hash-ref (car s) 'current-price)) strategies)])
+        (values (- (apply min current-prices) 50)
+                (+ (apply max current-prices) 50)))))
 
+;; Helper 2: Create plot elements for a single strategy
+(define (make-single-strategy-plot strategy label color x-min x-max)
+  (define (payoff x) (total-strategy-payoff strategy x))
+  (define breakevens (find-breakeven strategy x-min x-max 1))
+  (list (function payoff #:label label #:color color)
+        (points (map (λ (x) (vector x (payoff x))) breakevens)
+                #:sym 'circle #:size 8 #:color color #:label #f)))
+
+;; Main function
+(define (graph-multiple-strategies strategies #:min-price [min-price #f] #:max-price [max-price #f])
+  (let-values ([(x-min x-max) (get-plot-bounds strategies min-price max-price)])
+    (parameterize ([plot-new-window? #t])  ;; Ensure graph opens in a new window
+      (plot (append-map (λ (strat-info)
+                          (match-define (list strategy label color) strat-info)
+                          (make-single-strategy-plot strategy label color x-min x-max))
+                        strategies)
+            #:title "Option Strategy Comparison"
+            #:x-label "Stock Price"
+            #:y-label "Profit/Loss"
+            #:x-min x-min
+            #:x-max x-max
+            #:width 1400
+            #:height 600
+            #:legend-anchor 'outside-right))))
 
 
 ;; Example that would error
@@ -293,6 +325,13 @@
   #:risk-free-rate 0.02  ;; 2% risk-free rate
   (buy 1 call #:strike 140 #:expiration 30 #:premium 5.00)
   (sell 1 call #:strike 150 #:expiration 30 #:premium 5.00))
+
+(graph-multiple-strategies
+ (list (list bullish-strat "Bull Call Spread" "blue")
+       (list safe-strat "Covered Strangle" "green")
+       (list high-vol-strat "High Volatility" "red"))
+ #:min-price 50  ; Optional manual price range
+ #:max-price 250)
 
 (define (≈ a b tol) (< (abs (- a b)) tol))
 
