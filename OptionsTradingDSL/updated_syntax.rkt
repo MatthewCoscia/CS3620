@@ -133,7 +133,7 @@ than total purchased (no over-leveraging)."
      "Naked short calls or puts are not allowed in safe mode"
      
      #'(define strategy-name
-         (hash 'ticker 'ticker-value
+         (hash 'ticker-value 'ticker
                'current-price cp
                'safe-mode safe
                'volatility vol
