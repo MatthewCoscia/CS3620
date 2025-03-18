@@ -242,8 +242,8 @@
   #:ticker 'AAPL
   #:current-price 145.75
   #:safe-mode #t
-  #:volatility 0.3  ;; ✅ 30% volatility
-  #:risk-free-rate 0.02  ;; ✅ 2% risk-free rate
+  #:volatility 0.3  ;; 30% volatility
+  #:risk-free-rate 0.02  ;; 2% risk-free rate
   (buy 1 call #:strike 140 #:expiration 30)
   (sell 1 call #:strike 150 #:expiration 30))
 
@@ -251,8 +251,8 @@
   #:ticker 'AAPL
   #:current-price 145.75
   #:safe-mode #t
-  #:volatility 0.3  ;; ✅ 30% volatility
-  #:risk-free-rate 0.02  ;; ✅ 2% risk-free rate
+  #:volatility 0.3  ;; 30% volatility
+  #:risk-free-rate 0.02  ;; 2% risk-free rate
   (buy 1 call #:strike 140 #:expiration 30 #:premium 5.00)
   (sell 1 call #:strike 150 #:expiration 30 #:premium 5.00))
 
