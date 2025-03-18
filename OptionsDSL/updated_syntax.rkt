@@ -1,6 +1,63 @@
 #lang racket
-;;Grammar:
 
+;; ----------------------------------------
+;; 1. Overview: Compilation Process
+;; ----------------------------------------
+;; This DSL compiles options trading strategies into structured Racket hash tables.
+;; The compilation process involves:
+;; - **Parsing the DSL Syntax** using `syntax-parse` and syntax classes.
+;; - **Performing static validation checks** (e.g., preventing naked shorts, over-leveraging).
+;; - **Transforming strategies into Racket data structures** for runtime evaluation.
+;; - **Providing runtime functions** to compute payoffs and generate graphs.
+
+;; ----------------------------------------
+;; 2. Parsing: Syntax Structure
+;; ----------------------------------------
+;; The DSL is defined using a macro `define-option-strategy`, which takes:
+;; - A ticker symbol (`#:ticker`)
+;; - A stock price (`#:current-price`)
+;; - A safety flag (`#:safe-mode`)
+;; - Optional parameters like `#:volatility` and `#:risk-free-rate`
+;; - A sequence of trades (e.g., `(buy 1 call #:strike 150 #:expiration 30)`)
+
+;; Syntax validation is handled using **syntax classes**:
+;; - `action`: Restricts valid trade actions to `buy` or `sell`.
+;; - `option-type`: Ensures options are either `call` or `put`.
+;; - `ticker-symbol`: Enforces correct ticker syntax (quoted symbol).
+;; - `positive-price`, `positive-whole-qty`: Ensure valid price and contract quantity.
+
+;; ----------------------------------------
+;; 3. Compilation: Expanding to Racket Hash Tables
+;; ----------------------------------------
+;; The macro expands a strategy into a structured `hash` storing:
+;; - `ticker`: The underlying asset.
+;; - `current-price`: The market price of the asset.
+;; - `safe-mode`: Whether risk constraints apply.
+;; - `volatility`, `risk-free-rate`: Option pricing parameters.
+;; - `legs`: A list of trades (buy/sell option contracts).
+
+;; ----------------------------------------
+;; 4. Static Validation Checks
+;; ----------------------------------------
+;; Several **compile-time restrictions** (`#:fail-when`) ensure valid strategies:
+;; - **Expiration Range Check**: Options must expire between 7-365 days.
+;; - **No Over-Leveraging**: Cannot sell more contracts than purchased.
+;; - **Strike Price Limits**: Strike price must be within 30% of stock price.
+;; - **No Naked Shorts**: Selling options requires owning a corresponding long position.
+
+;; ----------------------------------------
+;; 5. Runtime Functions: Processing & Visualization
+;; ----------------------------------------
+;; Once compiled, the strategy can be:
+;; - Evaluated using `total-strategy-payoff` to compute expected gains/losses.
+;; - Visualized using `graph-strategy` to display option payoff structures.
+;; - Parsed using `parse-options` to extract structured trade data.
+
+;; This structure ensures **concise, readable DSL syntax** while providing **strong safety checks**
+;; and **efficient runtime execution**.
+
+
+;;Grammar:
 #;
 (define-option-strategy strategy-name
   #:ticker 'SYMBOL
@@ -34,6 +91,13 @@
   
   (define-syntax-class option-type
     (pattern (~or call put)))
+
+  (define-syntax-class non-negative-premium
+  #:description "non-negative premium"
+  (pattern p:expr
+           #:fail-when (and (number? (syntax-e #'p))
+                            (< (syntax-e #'p) 0))
+           "Premium must be non-negative."))
 
   (define-syntax-class positive-whole-qty
     #:description "positive whole number"
@@ -76,7 +140,7 @@
                        type:option-type 
                        #:strike s:expr 
                        #:expiration exp:number
-                       (~optional [~seq #:premium p:expr] #:defaults ([p #'#f]))) ...)
+                       (~optional [~seq #:premium p:non-negative-premium] #:defaults ([p #'#f]))) ...)
      
      #:with (action-sym ...) (map (λ (a) (datum->syntax #f (syntax->datum a))) 
                                   (syntax->list #'(action ...)))
@@ -92,9 +156,25 @@
      ;; Combined check for both naked calls and puts
      #:fail-when (and (equal? (syntax-e #'safe) #t)
                       (for/or ([exp (syntax->list #'(exp ...))])
-              (or (< (syntax-e exp) 7)
-                  (> (syntax-e exp) 365))))
-            "Expiration date must be between 7 and 365 days"
+                        (or (< (syntax-e exp) 7)
+                            (> (syntax-e exp) 365))))
+     "Expiration date must be between 7 and 365 days"
+
+
+     #:fail-when (and (equal? (syntax-e #'safe) #t)
+                      (for/or ([a (syntax->list #'(action ...))]
+                               [q (syntax->list #'(qty ...))])
+                        (and (eq? (syntax-e a) 'sell)
+                             (> (syntax-e q) (apply + (map syntax-e (syntax->list #'(qty ...))))))))
+     "Safe mode: Cannot sell more option contracts than total purchased (no over-leveraging)."
+
+
+     #:fail-when (and (equal? (syntax-e #'safe) #t)
+                      (let ([cp (syntax-e #'cp)])  ;; Extract current price once
+                        (for/or ([s (syntax->list #'(s ...))])
+                          (> (abs (- (syntax-e s) cp)) (* cp 0.3))))) ;; Compare strikes to price
+     "Safe mode: Strike price must be within 30% of the current price."
+
 
      #:fail-when (and (equal? (syntax-e #'safe) #t)
                       (or
@@ -119,15 +199,15 @@
                                      (and (eq? (syntax-e a2) 'buy)
                                           (eq? (syntax-e t2) 'call)
                                           (>= (syntax-e q2) 1))))))))
-                   "Naked short calls or puts are not allowed in safe mode"
+     "Naked short calls or puts are not allowed in safe mode"
      
      #'(define strategy-name
-        (hash 'ticker 'ticker-value
-              'current-price cp
-              'safe-mode safe
-              'volatility vol
-              'risk-free-rate rfr
-              'legs (list (list 'action-sym qty 'type-sym s exp p) ...)))]))
+         (hash 'ticker 'ticker-value
+               'current-price cp
+               'safe-mode safe
+               'volatility vol
+               'risk-free-rate rfr
+               'legs (list (list 'action-sym qty 'type-sym s exp p) ...)))]))
 
 (define (parse-options strategy)
   (map (lambda (leg)
@@ -382,19 +462,85 @@
   (check-= (option-payoff 110 100 'buy 'call 2 5 0 0 365 100) 10 0.001)
   (check-= (option-payoff 105 100 'buy 'call 1 #f 0.05 0 365 100) 0.123 0.01))
 
+
+;; Example Fails
+
+(define (fails-to-compile? expr)
+  (with-handlers ([exn:fail? (λ (_) #t)]) ;; If an exception occurs, return #t
+    (eval expr)  ;; Try to evaluate the expression
+    #f))         ;; If it compiles, return #f (which is a failure in our test)
+
+(define-test-suite safe-mode-failure-tests
+
+  ;; Expiration must be between 7-365 days
+  (check-true (fails-to-compile?
+               '(define-option-strategy risky-expiry
+                  #:ticker 'AAPL
+                  #:current-price 150
+                  #:safe-mode #t
+                  (buy 1 call #:strike 155 #:expiration 5)))  ;; Expiration < 7
+               "Safe mode: Should fail because expiration is too short.")
+
+  (check-true (fails-to-compile?
+               '(define-option-strategy risky-expiry
+                  #:ticker 'AAPL
+                  #:current-price 150
+                  #:safe-mode #t
+                  (buy 1 put #:strike 140 #:expiration 400)))  ;; Expiration > 365
+               "Safe mode: Should fail because expiration is too long.")
+
+  ;; Cannot sell more contracts than total purchased (no over-leveraging)
+  (check-true (fails-to-compile?
+               '(define-option-strategy over-leveraged
+                  #:ticker 'TSLA
+                  #:current-price 700
+                  #:safe-mode #t
+                  (buy 2 call #:strike 750 #:expiration 30)
+                  (sell 5 call #:strike 750 #:expiration 30)))  ;; Selling more than buying
+               "Safe mode: Should fail because more options are sold than bought.")
+
+  ;; Strike price must be within 30% of current price
+  (check-true (fails-to-compile?
+               '(define-option-strategy too-far-otm
+                  #:ticker 'NFLX
+                  #:current-price 500
+                  #:safe-mode #t
+                  (buy 1 call #:strike 700 #:expiration 60)))  ;; 40% away from current price
+               "Safe mode: Should fail because strike price is too high.")
+
+  (check-true (fails-to-compile?
+               '(define-option-strategy too-far-itm
+                  #:ticker 'NFLX
+                  #:current-price 500
+                  #:safe-mode #t
+                  (buy 1 put #:strike 250 #:expiration 60)))  ;; Strike too far from current price
+               "Safe mode: Should fail because strike price is too low.")
+
+  ;; Naked short calls or puts are not allowed
+  (check-true (fails-to-compile?
+               '(define-option-strategy naked-call
+                  #:ticker 'AMZN
+                  #:current-price 3000
+                  #:safe-mode #t
+                  (sell 1 call #:strike 3100 #:expiration 30)))  ;; No corresponding "buy"
+               "Safe mode: Should fail because selling a naked call.")
+
+  (check-true (fails-to-compile?
+               '(define-option-strategy naked-put
+                  #:ticker 'GOOG
+                  #:current-price 2800
+                  #:safe-mode #t
+                  (sell 1 put #:strike 2700 #:expiration 30)))  ;; No corresponding "buy"
+               "Safe mode: Should fail because selling a naked put.")
+)
+
 ;; Run all tests with verbose output
 (displayln "Running Premium Tests:")
 (run-tests premium-tests 'verbose)
 (newline)
 (displayln "Running Payoff Tests:")
 (run-tests payoff-tests 'verbose)
+(newline)
+(displayln "Compilation Error Tests:")
+(run-tests safe-mode-failure-tests 'verbose)
 
-
-;; Example usage
-#|
-(define-option-strategy AAPL-strat
-  #:ticker 'AAPL
-  #:current-price 182.52
-  #:safe-mode #t
-  (sell  1 call  #:strike 200 #:expiration 20))
-|#
