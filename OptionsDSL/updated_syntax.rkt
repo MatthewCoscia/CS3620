@@ -1,5 +1,12 @@
 #lang racket
 
+(require (for-syntax syntax/parse)
+         racket/date
+         plot
+         rackunit
+         rackunit/text-ui
+         math/special-functions)
+
 ;; ----------------------------------------
 ;; 1. Overview: Compilation Process
 ;; ----------------------------------------
@@ -19,6 +26,21 @@
 ;; - A safety flag (`#:safe-mode`)
 ;; - Optional parameters like `#:volatility` and `#:risk-free-rate`
 ;; - A sequence of trades (e.g., `(buy 1 call #:strike 150 #:expiration 30)`)
+
+;; ----------------------------------------
+;; 2.1 Single Option Trade Definition
+;; ----------------------------------------
+;; Each option trade follows this syntax:
+;;
+;; (ACTION QTY TYPE #:strike STRIKE #:expiration EXPIRATION [#:premium PREMIUM])
+;;
+;; Where:
+;; - `ACTION`: Either `buy` or `sell`, defining if the contract is purchased or written.
+;; - `QTY`: A positive integer specifying the number of contracts.
+;; - `TYPE`: `call` or `put`, determining the option type.
+;; - `#:strike STRIKE`: The strike price at which the option can be exercised.
+;; - `#:expiration EXPIRATION`: The expiration time in days.
+;; - `#:premium PREMIUM` (optional): The premium paid/received per contract.
 
 ;; Syntax validation is handled using **syntax classes**:
 ;; - `action`: Restricts valid trade actions to `buy` or `sell`.
@@ -50,7 +72,7 @@
 ;; ----------------------------------------
 ;; Once compiled, the strategy can be:
 ;; - Evaluated using `total-strategy-payoff` to compute expected gains/losses.
-;; - Visualized using `graph-strategy` to display option payoff structures.
+;; - Visualized using `graph-multiple-strategies` to display option payoff structures.
 ;; - Parsed using `parse-options` to extract structured trade data.
 
 ;; This structure ensures **concise, readable DSL syntax** while providing **strong safety checks**
@@ -76,14 +98,6 @@
   [#:min-price MIN]
   [#:max-price MAX])
 
-
-
-
-
-(require (for-syntax syntax/parse)
-         racket/date
-         plot
-         rackunit)
 
 (begin-for-syntax
   (define-syntax-class action
@@ -301,9 +315,6 @@
         #:x-label "Stock Price"
         #:y-label "Profit/Loss"))
 
-
-(require math/special-functions)
-
 (define (cdf x)
   (/ (+ 1 (erf (/ x (sqrt 2)))) 2))
 
@@ -438,8 +449,6 @@
  #:max-price 350)
 
 (define (≈ a b tol) (< (abs (- a b)) tol))
-
-(require rackunit/text-ui)
 
 (define tol 0.001)
 
