@@ -319,19 +319,19 @@
 
 (define-option-strategy high-vol-strat-prem
   #:ticker 'AAPL
-  #:current-price 145.75
+  #:current-price 280.75
   #:safe-mode #t
   #:volatility 0.3  ;; 30% volatility
   #:risk-free-rate 0.02  ;; 2% risk-free rate
-  (buy 1 call #:strike 140 #:expiration 30 #:premium 5.00)
-  (sell 1 call #:strike 150 #:expiration 30 #:premium 5.00))
+  (buy 1 call #:strike 240 #:expiration 30 #:premium 5.00)
+  (sell 1 call #:strike 320 #:expiration 30 #:premium 5.00))
 
 (graph-multiple-strategies
  (list (list bullish-strat "Bull Call Spread" "blue")
        (list safe-strat "Covered Strangle" "green")
-       (list high-vol-strat "High Volatility" "red"))
+       (list high-vol-strat-prem "High Volatility" "red"))
  #:min-price 50  ; Optional manual price range
- #:max-price 250)
+ #:max-price 350)
 
 (define (≈ a b tol) (< (abs (- a b)) tol))
 
