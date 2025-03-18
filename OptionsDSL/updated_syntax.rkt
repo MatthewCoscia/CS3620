@@ -1,7 +1,8 @@
 #lang racket
 (require (for-syntax syntax/parse)
          racket/date
-         plot)
+         plot
+         rackunit)
 
 (begin-for-syntax
   (define-syntax-class action
@@ -65,9 +66,10 @@
           (syntax->list #'(p ...)))
      
      ;; Combined check for both naked calls and puts
-     #:fail-when (for/or ([exp (syntax->list #'(exp ...))])
+     #:fail-when (and (equal? (syntax-e #'safe) #t)
+                      (for/or ([exp (syntax->list #'(exp ...))])
               (or (< (syntax-e exp) 7)
-                  (> (syntax-e exp) 365)))
+                  (> (syntax-e exp) 365))))
             "Expiration date must be between 7 and 365 days"
 
      #:fail-when (and (equal? (syntax-e #'safe) #t)
@@ -203,12 +205,25 @@
 
 (define (black-scholes-call S K T r sigma)
   (let* ([d1 (/ (+ (log (/ S K)) (* (+ r (/ (expt sigma 2) 2)) T))
-                (* sigma (sqrt T)))])
-    (- (* S (cdf d1)) (* K (exp (* (- r) T)) (cdf (- d1 (* sigma (sqrt T))))))))
+                (* sigma (sqrt T)))]
+         [d2 (- d1 (* sigma (sqrt T)))]
+         [Nd1 (cdf d1)]
+         [Nd2 (cdf d2)]
+         [discount-factor (exp (* (- r) T))]
+         [call-price (- (* S Nd1) (* K discount-factor Nd2))])
+    call-price))
 
 (define (black-scholes-put S K T r sigma)
-  (- (black-scholes-call S K T r sigma)
-     (* K (exp (* (- r) T)))))
+  (let* ([d1 (/ (+ (log (/ S K)) (* (+ r (/ (expt sigma 2) 2)) T))
+                (* sigma (sqrt T)))]
+         [d2 (- d1 (* sigma (sqrt T)))]
+         [Nd1 (cdf (- d1))]  
+         [Nd2 (cdf (- d2))]  
+         [discount-factor (exp (* (- r) T))]
+         [put-price (- (* K discount-factor Nd2) (* S Nd1))])
+    put-price))
+
+
 
 (define (calculate-premium strike price expiration risk-free-rate volatility type)
   (displayln (format "Calculating premium: Strike=~a, Price=~a, Expiration=~a, rfr=~a, vol=~a, type=~a"
@@ -278,7 +293,33 @@
   (buy 1 call #:strike 140 #:expiration 30 #:premium 5.00)
   (sell 1 call #:strike 150 #:expiration 30 #:premium 5.00))
 
+(define (≈ a b tol) (< (abs (- a b)) tol))
 
+(define (test-premium)
+  (define tol 0.001)  ; Tolerance for floating point comparison
+  
+  ;; 30-day options (T = 30/365 ≈ 0.0822)
+  (check-true (≈ (calculate-premium 140 145.75 0.0822 0.02 0.3 'call) 8.4563 tol)
+              "Call option price mismatch for strike=140")
+  
+  (check-true (≈ (calculate-premium 150 145.75 0.0822 0.02 0.3 'call) 3.3159 tol)
+              "Call option price mismatch for strike=150")
+
+  (check-true (≈ (calculate-premium 140 145.75 0.0822 0.02 0.3 'put) 2.4763 tol)
+              "Put option price mismatch for strike=140")
+
+  (check-true (≈ (calculate-premium 150 145.75 0.0822 0.02 0.3 'put) 7.3195 tol)
+              "Put option price mismatch for strike=150")
+
+  ;; 1-year options
+  (check-true (≈ (calculate-premium 140 145.75 1 0.05 0.2 'call) 18.5054 tol)
+              "Call option price mismatch for 1-year expiry")
+
+  (check-true (≈ (calculate-premium 150 145.75 1 0.05 0.2 'put) 10.0195 tol)
+              "Put option price mismatch for 1-year expiry")
+)
+
+(test-premium)
 
 
 
