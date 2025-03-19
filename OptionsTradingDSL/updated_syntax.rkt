@@ -57,7 +57,7 @@
   (syntax-parse stx
     [(_ strategy-name:id 
         #:ticker ticker:ticker-symbol
-        #:current-price cp:positive-price
+        #:ticker-price cp:positive-price
         #:safe-mode safe:safe-mode
         (~optional [~seq #:volatility vol:expr]
                    #:defaults ([vol #'0.2])) ;; Default Volatility: 20%
@@ -134,7 +134,7 @@ than total purchased (no over-leveraging)."
      
      #'(define strategy-name
          (hash 'ticker-value 'ticker
-               'current-price cp
+               'ticker-price cp
                'safe-mode safe
                'volatility vol
                'risk-free-rate rfr
@@ -156,12 +156,13 @@ than total purchased (no over-leveraging)."
 
 
 (define (option-payoff stock-price strike action type quantity premium 
-                       risk-free-rate volatility expiration-days current-price)
+                       risk-free-rate volatility expiration-days ticker-price)
   (let* ([T (/ expiration-days 365.0)]  ;; Convert days to years
          [actual-premium (if (equal? premium #f)
-                             (calculate-premium strike current-price T 
+                             (calculate-premium strike ticker-price T 
                                                 risk-free-rate volatility type)
-                             premium)]  ;; Use either Black-Scholes or manual premium
+                             premium)]  ;; Use either Black-Scholes
+         ;; or manual premium
          [raw-payoff (cond
                        [(eq? type 'call) (max 0 (- stock-price strike))]
                        [(eq? type 'put)  (max 0 (- strike stock-price))])]
@@ -180,7 +181,7 @@ than total purchased (no over-leveraging)."
 
 (define (total-strategy-payoff strategy stock-price)
   (let* ([legs (parse-options strategy)]
-         [current-price (hash-ref strategy 'current-price)]
+         [ticker-price (hash-ref strategy 'ticker-price)]
          [volatility (hash-ref strategy 'volatility)]
          [risk-free-rate (hash-ref strategy 'risk-free-rate)])
     (apply +
@@ -194,7 +195,7 @@ than total purchased (no over-leveraging)."
                                  risk-free-rate
                                  volatility
                                  (hash-ref leg 'expiration)
-                                 current-price))
+                                 ticker-price))
                 legs))))
 
 
@@ -253,8 +254,8 @@ than total purchased (no over-leveraging)."
 
 
 (define (print-strategy strategy)
-  (define min-price (- (hash-ref strategy 'current-price) 50))
-  (define max-price (+ (hash-ref strategy 'current-price) 50))
+  (define min-price (- (hash-ref strategy 'ticker-price) 50))
+  (define max-price (+ (hash-ref strategy 'ticker-price) 50))
   (define step 1)
 
   ;; Generate (stock price, payoff) pairs
@@ -268,13 +269,13 @@ than total purchased (no over-leveraging)."
 (define (get-plot-bounds strategies min-price max-price)
   (if (or min-price max-price)
       (values (or min-price
-                  (- (hash-ref (caar strategies) 'current-price) 50))
+                  (- (hash-ref (caar strategies) 'ticker-price) 50))
               (or max-price
-                  (+ (hash-ref (caar strategies) 'current-price) 50)))
-      (let ([current-prices (map (λ (s) (hash-ref (car s) 'current-price))
+                  (+ (hash-ref (caar strategies) 'ticker-price) 50)))
+      (let ([ticker-prices (map (λ (s) (hash-ref (car s) 'ticker-price))
                                  strategies)])
-        (values (- (apply min current-prices) 50)
-                (+ (apply max current-prices) 50)))))
+        (values (- (apply min ticker-prices) 50)
+                (+ (apply max ticker-prices) 50)))))
 
 ;; Helper 2: Create plot elements for a single strategy
 (define (make-single-strategy-plot strategy label color x-min x-max)
@@ -310,7 +311,7 @@ than total purchased (no over-leveraging)."
 ;; Example that would error
 (define-option-strategy risky-strat
   #:ticker 'TSLA
-  #:current-price 250.50
+  #:ticker-price 250.50
   #:safe-mode #t
   (buy 1 call #:strike 300 #:expiration 30)  ;; Naked call
   (sell 1 call  #:strike 200 #:expiration 30)) ;; Naked put
@@ -318,7 +319,7 @@ than total purchased (no over-leveraging)."
 ;; Valid covered strategy
 (define-option-strategy safe-strat
   #:ticker 'GOOG
-  #:current-price 145.75
+  #:ticker-price 145.75
   #:safe-mode #t
   (sell 1 call #:strike 150 #:expiration 30)
   (buy  1 call #:strike 150 #:expiration 30)  ;; Covers call
@@ -327,14 +328,14 @@ than total purchased (no over-leveraging)."
 
 (define-option-strategy bullish-strat
   #:ticker 'AAPL
-  #:current-price 145.75
+  #:ticker-price 145.75
   #:safe-mode #t
   (buy 1 call #:strike 140 #:expiration 30)  ;; Lower strike, long call
   (sell 1 call #:strike 150 #:expiration 30)) ;; Higher strike, short call
 
 (define-option-strategy high-vol-strat
   #:ticker 'AAPL
-  #:current-price 145.75
+  #:ticker-price 145.75
   #:safe-mode #t
   #:volatility 0.3  ;; 30% volatility
   #:risk-free-rate 0.02  ;; 2% risk-free rate
@@ -343,7 +344,7 @@ than total purchased (no over-leveraging)."
 
 (define-option-strategy high-vol-strat-prem
   #:ticker 'AAPL
-  #:current-price 280.75
+  #:ticker-price 280.75
   #:safe-mode #t
   #:volatility 0.3  ;; 30% volatility
   #:risk-free-rate 0.02  ;; 2% risk-free rate
@@ -406,7 +407,7 @@ than total purchased (no over-leveraging)."
   (check-true (fails-to-compile?
                '(define-option-strategy over-leveraged
                   #:ticker 'TSLA
-                  #:current-price 700
+                  #:ticker-price 700
                   #:safe-mode #t
                   (buy 2 call #:strike 750 #:expiration 30)
                   (sell 5 call #:strike 750 #:expiration 30)))
@@ -418,7 +419,7 @@ than total purchased (no over-leveraging)."
   (check-true (fails-to-compile?
                '(define-option-strategy too-far-otm
                   #:ticker 'NFLX
-                  #:current-price 500
+                  #:ticker-price 500
                   #:safe-mode #t
                   (buy 1 call #:strike 700 #:expiration 60)))
               ;; 40% away from current price
@@ -427,7 +428,7 @@ than total purchased (no over-leveraging)."
   (check-true (fails-to-compile?
                '(define-option-strategy too-far-itm
                   #:ticker 'NFLX
-                  #:current-price 500
+                  #:ticker-price 500
                   #:safe-mode #t
                   (buy 1 put #:strike 250 #:expiration 60)))
               ;; Strike too far from current price
@@ -437,7 +438,7 @@ than total purchased (no over-leveraging)."
   (check-true (fails-to-compile?
                '(define-option-strategy naked-call
                   #:ticker 'AMZN
-                  #:current-price 3000
+                  #:ticker-price 3000
                   #:safe-mode #t
                   (sell 1 call #:strike 3100 #:expiration 30)))
               ;; No corresponding "buy"
@@ -446,7 +447,7 @@ than total purchased (no over-leveraging)."
   (check-true (fails-to-compile?
                '(define-option-strategy naked-put
                   #:ticker 'GOOG
-                  #:current-price 2800
+                  #:ticker-price 2800
                   #:safe-mode #t
                   (sell 1 put #:strike 2700 #:expiration 30)))
               ;; No corresponding "buy"

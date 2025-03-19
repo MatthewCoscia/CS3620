@@ -4,7 +4,7 @@
 ;; STRATEGY
 (define-option-strategy strategy-name
   #:ticker 'SYMBOL
-  #:current-price PRICE
+  #:ticker-price PRICE
   #:safe-mode BOOLEAN
   [#:volatility VOLATILITY] ; default 0.3
   [#:risk-free-rate RFR] ; default 0.05
@@ -24,19 +24,19 @@
 
 (define-option-strategy safe-strat
   #:ticker 'GOOG
-  #:current-price 145.75
+  #:ticker-price 145.75
   #:safe-mode #t
   (sell 1 call #:strike 150 #:expiration 30)
-  (buy  1 call #:strike 150 #:expiration 30)  ;; Covers call
+  (buy  1 call #:strike 150 #:expiration 30) 
   (sell 1 put  #:strike 140 #:expiration 30)
-  (buy  1 put  #:strike 140 #:expiration 30)) ;; Covers put
+  (buy  1 put  #:strike 140 #:expiration 30))
 ;;  ---->
 #|
 (define safe-strat
   (hash
    'ticker-value
    ''GOOG
-   'current-price
+   'ticker-price
    145.75
    'safe-mode
    #t
