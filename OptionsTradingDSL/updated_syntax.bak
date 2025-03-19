@@ -372,14 +372,12 @@ than total purchased (no over-leveraging)."
   (buy 1 call #:strike 240 #:expiration 30 #:premium 7.50)
   (sell 1 call #:strike 320 #:expiration 30 #:premium 5.00))
 
-
-(define (graph-preview)
-  (graph-multiple-strategies
-   (list (list bullish-strat "Bull Call Spread" "blue")
-         (list safe-strat "Covered Strangle" "green")
-         (list high-vol-strat-prem "High Volatility" "red"))
-   #:min-price 50  ; Optional manual price range
-   #:max-price 350))
+(graph-multiple-strategies
+ (list (list bullish-strat "Bull Call Spread" "blue")
+       (list safe-strat "Covered Strangle" "green")
+       (list high-vol-strat-prem "High Volatility" "red"))
+ #:min-price 50  ; Optional manual price range
+ #:max-price 350)
 
 (define (≈ a b tol) (< (abs (- a b)) tol))
 
