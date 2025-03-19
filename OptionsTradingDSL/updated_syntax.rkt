@@ -161,8 +161,7 @@ than total purchased (no over-leveraging)."
          [actual-premium (if (equal? premium #f)
                              (calculate-premium strike current-price T 
                                                 risk-free-rate volatility type)
-                             premium)]  ;; Use either Black-Scholes
-         ;; or manual premium
+                             premium)]  ;; Use either Black-Scholes or manual premium
          [raw-payoff (cond
                        [(eq? type 'call) (max 0 (- stock-price strike))]
                        [(eq? type 'put)  (max 0 (- strike stock-price))])]
