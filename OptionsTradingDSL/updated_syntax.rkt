@@ -210,27 +210,6 @@ than total purchased (no over-leveraging)."
               (loop (+ price step) (cons price breakevens))
               (loop (+ price step) breakevens))))))
 
-(define (graph-strategy strategy)
-  (define min-price (- (hash-ref strategy 'current-price) 50))
-  (define max-price (+ (hash-ref strategy 'current-price) 50))
-  (define step 1)
-
-  ;; Find breakeven points
-  (define breakevens (find-breakeven strategy min-price max-price step))
-
-  ;; Define payoff function
-  (define (payoff x) (total-strategy-payoff strategy x))
-
-  ;; Plot main payoff function + breakeven points
-  (plot (list
-         (function payoff min-price max-price)
-         (points (map (lambda (x) (vector x (payoff x))) breakevens)
-                 #:sym 'circle
-                 #:size 8
-                 #:color "red"))
-        #:title "Option Strategy Payoff"
-        #:x-label "Stock Price"
-        #:y-label "Profit/Loss"))
 
 (define (cdf x)
   (/ (+ 1 (erf (/ x (sqrt 2)))) 2))
@@ -379,6 +358,10 @@ than total purchased (no over-leveraging)."
          (list high-vol-strat-prem "High Volatility" "red"))
    #:min-price 50  ; Optional manual price range
    #:max-price 350))
+
+(define (graph-preview-single)
+  (graph-multiple-strategies
+   (list (list bullish-strat "Bull Call Spread" "blue"))))
 
 (define (≈ a b tol) (< (abs (- a b)) tol))
 
