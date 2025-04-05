@@ -9,6 +9,13 @@
 
 
 
+(struct strategy (name ticker ticker-price safe-mode volatility
+                      risk-free-rate legs)
+  #:transparent)
+
+(struct option-leg (action qty type strike expiration premium)
+  #:transparent)
+
 
 (begin-for-syntax
   (define-syntax-class action
@@ -108,37 +115,29 @@ than total purchased (no over-leveraging)."
 
 
      #:fail-when (and (equal? (syntax-e #'safe) #t)
-                      (or
-                       (for/or ([a (syntax->list #'(action ...))]
+                 (for/or ([option-type '(put call)])
+                   (and (for/or ([a (syntax->list #'(action ...))]
                                 [t (syntax->list #'(type ...))])
-                         (and (eq? (syntax-e a) 'sell)
-                              (eq? (syntax-e t) 'put)
-                              (not (for/or ([a2 (syntax->list #'(action ...))]
-                                            [t2 (syntax->list #'(type ...))]
-                                            [q2 (syntax->list #'(qty ...))])
-                                     (and (eq? (syntax-e a2) 'buy)
-                                          (eq? (syntax-e t2) 'put)
-                                          (>= (syntax-e q2) 1))))))
-
-                       (for/or ([a (syntax->list #'(action ...))]
-                                [t (syntax->list #'(type ...))])
-                         (and (eq? (syntax-e a) 'sell)
-                              (eq? (syntax-e t) 'call)
-                              (not (for/or ([a2 (syntax->list #'(action ...))]
-                                            [t2 (syntax->list #'(type ...))]
-                                            [q2 (syntax->list #'(qty ...))])
-                                     (and (eq? (syntax-e a2) 'buy)
-                                          (eq? (syntax-e t2) 'call)
-                                          (>= (syntax-e q2) 1))))))))
+                          (and (eq? (syntax-e a) 'sell)
+                               (eq? (syntax-e t) option-type)))
+                        (not (for/or ([a2 (syntax->list #'(action ...))]
+                                      [t2 (syntax->list #'(type ...))]
+                                      [q2 (syntax->list #'(qty ...))])
+                               (and (eq? (syntax-e a2) 'buy)
+                                    (eq? (syntax-e t2) option-type)
+                                    (>= (syntax-e q2) 1)))))))
      "Naked short calls or puts are not allowed in safe mode"
      
      #'(define strategy-name
-         (hash 'ticker-value 'ticker
-               'ticker-price cp
-               'safe-mode safe
-               'volatility vol
-               'risk-free-rate rfr
-               'legs (list (list 'action-sym qty 'type-sym s exp p) ...)))]))
+    (strategy 'strategy-name
+              'ticker
+              cp
+              safe
+              vol
+              rfr
+              (list
+               (option-leg 'action-sym qty 'type-sym s exp p)
+               ...)))]))
 
 (define (parse-options strategy)
   (map (lambda (leg)
@@ -179,24 +178,25 @@ than total purchased (no over-leveraging)."
 
 
 
-(define (total-strategy-payoff strategy stock-price)
-  (let* ([legs (parse-options strategy)]
-         [ticker-price (hash-ref strategy 'ticker-price)]
-         [volatility (hash-ref strategy 'volatility)]
-         [risk-free-rate (hash-ref strategy 'risk-free-rate)])
+(define (total-strategy-payoff strat stock-price)
+  (let* ([legs (strategy-legs strat)]
+         [ticker-price (strategy-ticker-price strat)]
+         [volatility (strategy-volatility strat)]
+         [risk-free-rate (strategy-risk-free-rate strat)])
     (apply +
-           (map (lambda (leg)
+           (map (λ (leg)
                   (option-payoff stock-price
-                                 (hash-ref leg 'strike)
-                                 (hash-ref leg 'action)
-                                 (hash-ref leg 'type)
-                                 (hash-ref leg 'quantity)
-                                 (hash-ref leg 'premium)
+                                 (option-leg-strike leg)
+                                 (option-leg-action leg)
+                                 (option-leg-type leg)
+                                 (option-leg-qty leg)
+                                 (option-leg-premium leg)
                                  risk-free-rate
                                  volatility
-                                 (hash-ref leg 'expiration)
+                                 (option-leg-expiration leg)
                                  ticker-price))
                 legs))))
+
 
 
 
@@ -253,29 +253,29 @@ than total purchased (no over-leveraging)."
     premium))
 
 
-(define (print-strategy strategy)
-  (define min-price (- (hash-ref strategy 'ticker-price) 50))
-  (define max-price (+ (hash-ref strategy 'ticker-price) 50))
+(define (print-strategy strat)
+  (define min-price (- (strategy-ticker-price strat) 50))
+  (define max-price (+ (strategy-ticker-price strat) 50))
   (define step 1)
-
-  ;; Generate (stock price, payoff) pairs
   (for ([price (in-range min-price (+ max-price step) step)])
     (printf "Stock Price: ~a | Payoff: ~a\n"
             price
-            (total-strategy-payoff strategy price))))
+            (total-strategy-payoff strat price))))
+
 
 
 ;; Helper 1: Calculate plot boundaries
 (define (get-plot-bounds strategies min-price max-price)
   (if (or min-price max-price)
       (values (or min-price
-                  (- (hash-ref (caar strategies) 'ticker-price) 50))
+                  (- (strategy-ticker-price (caar strategies)) 50))
               (or max-price
-                  (+ (hash-ref (caar strategies) 'ticker-price) 50)))
-      (let ([ticker-prices (map (λ (s) (hash-ref (car s) 'ticker-price))
+                  (+ (strategy-ticker-price (caar strategies)) 50)))
+      (let ([ticker-prices (map (λ (s) (strategy-ticker-price (car s)))
                                  strategies)])
         (values (- (apply min ticker-prices) 50)
                 (+ (apply max ticker-prices) 50)))))
+
 
 ;; Helper 2: Create plot elements for a single strategy
 (define (make-single-strategy-plot strategy label color x-min x-max)
@@ -464,3 +464,4 @@ than total purchased (no over-leveraging)."
 (displayln "Compilation Error Tests:")
 (run-tests safe-mode-failure-tests 'verbose)
 
+(graph-preview)
