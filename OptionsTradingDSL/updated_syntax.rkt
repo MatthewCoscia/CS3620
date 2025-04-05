@@ -77,10 +77,7 @@
                        (~optional [~seq #:premium p:non-negative-premium]
                                   #:defaults ([p #'#f]))) ...)
      
-     #:with (action-sym ...) (map (λ (a) (datum->syntax #f (syntax->datum a))) 
-                                  (syntax->list #'(action ...)))
-     #:with (type-sym ...) (map (λ (t) (datum->syntax #f (syntax->datum t))) 
-                                (syntax->list #'(type ...)))
+
      #:with (premium-sym ...)
      (map (λ (p-stx)
             (if (equal? (syntax->datum p-stx) #f)
@@ -128,16 +125,17 @@ than total purchased (no over-leveraging)."
                                     (>= (syntax-e q2) 1)))))))
      "Naked short calls or puts are not allowed in safe mode"
      
-     #'(define strategy-name
-    (strategy 'strategy-name
-              'ticker
-              cp
-              safe
-              vol
-              rfr
-              (list
-               (option-leg 'action-sym qty 'type-sym s exp p)
-               ...)))]))
+ #`(define strategy-name
+         (strategy
+          'strategy-name         ; You can change this if you want to use the actual identifier.
+          'ticker               ; Same here: adjust to use the provided ticker.
+          cp                    ; Ticker price.
+          safe                  ; Safe mode.
+          vol                   ; Volatility.
+          rfr                   ; Risk-free rate.
+          (list
+           (option-leg 'action qty 'type s exp p)
+           ...)))]))
 
 (define (parse-options strategy)
   (map (lambda (leg)
@@ -426,7 +424,7 @@ than total purchased (no over-leveraging)."
               "Safe mode: Should fail because strike price is too high.")
 
   (check-true (fails-to-compile?
-               '(define-option-strategy too-far-itm
+               '(define-option-strategy too-far-it
                   #:ticker 'NFLX
                   #:ticker-price 500
                   #:safe-mode #t
