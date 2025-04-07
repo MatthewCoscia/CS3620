@@ -60,6 +60,8 @@
     #:description "safety mode setting"
     (pattern (~or #t #f))))
 
+ 
+
 (define-syntax (define-option-strategy stx)
   (syntax-parse stx
     [(_ strategy-name:id 
@@ -136,6 +138,20 @@ than total purchased (no over-leveraging)."
           (list
            (option-leg 'action qty 'type s exp p)
            ...)))]))
+
+
+(define-syntax (bull-call-spread stx)
+  (syntax-parse stx
+    [(_ low high expiration)
+     #'(begin
+         (buy 1 call
+              #:strike low
+              #:expiration expiration)
+         (sell 1 call
+               #:strike high
+               #:expiration expiration))]))
+
+
 
 (define (parse-options strategy)
   (map (lambda (leg)
@@ -260,7 +276,42 @@ than total purchased (no over-leveraging)."
             price
             (total-strategy-payoff strat price))))
 
-
+(define-syntax (define-option-strategy-shortcuts stx)
+  (syntax-parse stx
+    [(_ strategy-name:id 
+        #:ticker ticker:expr
+        #:ticker-price cp:expr
+        #:safe-mode safe:expr
+        (~optional [~seq #:volatility vol:expr] #:defaults ([vol #'0.2]))
+        (~optional [~seq #:risk-free-rate rfr:expr] #:defaults ([rfr #'0.05]))
+        (strategy-type:id strike1:expr strike2:expr expiration:expr))
+     
+     (define expanded-legs
+       (case (syntax->datum #'strategy-type)
+         [(bull-call-spread)
+          (list 
+            #'(buy 1 call #:strike strike1 #:expiration expiration)
+            #'(sell 1 call #:strike strike2 #:expiration expiration))]
+         [(bear-put-spread)
+          (list
+            #'(buy 1 put #:strike strike1 #:expiration expiration)
+            #'(sell 1 put #:strike strike2 #:expiration expiration))]
+         [(long-call)
+          (list 
+            #'(buy 1 call #:strike strike1 #:expiration strike2))]
+         [(long-put)
+          (list
+            #'(buy 1 put #:strike strike1 #:expiration strike2))]
+         [else (raise-syntax-error 'define-option-strategy-shortcuts
+                                  "Unknown strategy type" #'strategy-type)]))
+     
+     #`(define-option-strategy strategy-name
+         #:ticker ticker
+         #:ticker-price cp
+         #:safe-mode safe
+         #:volatility vol
+         #:risk-free-rate rfr
+         #,@expanded-legs)]))
 
 ;; Helper 1: Calculate plot boundaries
 (define (get-plot-bounds strategies min-price max-price)
@@ -331,6 +382,9 @@ than total purchased (no over-leveraging)."
   (buy 1 call #:strike 140 #:expiration 30)  ;; Lower strike, long call
   (sell 1 call #:strike 150 #:expiration 30)) ;; Higher strike, short call
 
+
+
+
 (define-option-strategy high-vol-strat
   #:ticker 'AAPL
   #:ticker-price 145.75
@@ -357,6 +411,13 @@ than total purchased (no over-leveraging)."
          (list high-vol-strat-prem "High Volatility" "red"))
    #:min-price 50  ; Optional manual price range
    #:max-price 350))
+
+(define-option-strategy-shortcuts bullish-strat-shortened
+  #:ticker 'AAPL
+  #:ticker-price 145.75
+  #:safe-mode #t
+  (bull-call-spread 140 150 30))
+
 
 (define (graph-preview-single)
   (graph-multiple-strategies
