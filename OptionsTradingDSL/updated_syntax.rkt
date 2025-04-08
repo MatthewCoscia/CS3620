@@ -10,7 +10,7 @@
          rackunit/text-ui
          math/special-functions)
 
-;; Define the structures
+
 (struct strategy (name ticker ticker-price safe-mode volatility
                       risk-free-rate legs)
   #:transparent)
@@ -19,7 +19,7 @@
 (struct shares-leg (action qty)
   #:transparent)
 
-;; Define the syntax classes at compile time
+
 (begin-for-syntax
   (define-syntax-class action
     #:description "buy or sell action"
@@ -71,7 +71,7 @@
               (~optional (~seq #:premium p:non-negative-premium)
                          #:defaults ([p #'#f])))
              #:with result #'(option-leg 'action.act qty 'type.t s exp p))
-    ;; Pattern for share legs - correctly match the 'shares' symbol
+    ;; Pattern for share legs 
     (pattern (action:action
               qty:positive-whole-qty
               shares-kw)
@@ -88,7 +88,7 @@
         (~optional (~seq #:volatility vol:expr)
                    #:defaults ([vol #'0.2]))    ;; Default Volatility: 20%
         (~optional (~seq #:risk-free-rate rfr:expr)
-                   #:defaults ([rfr #'0.05]))   ;; Default Risk-Free Rate: 5%
+                   #:defaults ([rfr #'0.05]))   ;; Default Risk Free Rate: 5%
         legs:leg-pattern ...)
      
      #`(define strategy-name
@@ -170,96 +170,101 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 
     [else (void)]))
 
-(define-for-syntax (expand-strategy-legs strategy args-list)
+(define-for-syntax (expand-strategy-legs strategy args-list qty-stx)
   (validate-strategy-args strategy args-list)
+  (define qty*100-stx #`(* #,qty-stx 100))
+  (define qty*2-stx #`(* #,qty-stx 2))
   (cond
+    ;; Call Debit Spread
     [(eq? strategy 'call-debit-spread)
      (define-values (strike1 strike2 expiration) (apply values args-list))
      (list
-      `(buy 1 call #:strike ,strike1 #:expiration ,expiration)
-      `(sell 1 call #:strike ,strike2 #:expiration ,expiration))]
+      `(buy ,qty-stx call #:strike ,strike1 #:expiration ,expiration)
+      `(sell ,qty-stx call #:strike ,strike2 #:expiration ,expiration))]
 
+    ;; Put Debit Spread
     [(eq? strategy 'put-debit-spread)
      (define-values (strike1 strike2 expiration) (apply values args-list))
      (list
-      `(buy 1 put #:strike ,strike1 #:expiration ,expiration)
-      `(sell 1 put #:strike ,strike2 #:expiration ,expiration))]
+      `(buy ,qty-stx put #:strike ,strike1 #:expiration ,expiration)
+      `(sell ,qty-stx put #:strike ,strike2 #:expiration ,expiration))]
 
+    ;; Butterfly spread
     [(eq? strategy 'butterfly-spread)
      (define-values (k1 k2 k3 expiration) (apply values args-list))
      (list
-      `(buy 1 call #:strike ,k1 #:expiration ,expiration)
-      `(sell 2 call #:strike ,k2 #:expiration ,expiration)
-      `(buy 1 call #:strike ,k3 #:expiration ,expiration))]
+      `(buy ,qty-stx call #:strike ,k1 #:expiration ,expiration)
+      `(sell qty*2-stx call #:strike ,k2 #:expiration ,expiration)
+      `(buy ,qty-stx call #:strike ,k3 #:expiration ,expiration))]
 
     ;; Call credit spread
     [(eq? strategy 'call-credit-spread)
      (define-values (strike1 strike2 expiration) (apply values args-list))
      (list
-      `(sell 1 call #:strike ,strike1 #:expiration ,expiration)
-      `(buy 1 call #:strike ,strike2 #:expiration ,expiration))]
+      `(sell ,qty-stx call #:strike ,strike1 #:expiration ,expiration)
+      `(buy ,qty-stx call #:strike ,strike2 #:expiration ,expiration))]
 
     ;; Put credit spread
     [(eq? strategy 'put-credit-spread)
      (define-values (strike1 strike2 expiration) (apply values args-list))
      (list
-      `(sell 1 put #:strike ,strike1 #:expiration ,expiration)
-      `(buy 1 put #:strike ,strike2 #:expiration ,expiration))]
+      `(sell ,qty-stx put #:strike ,strike1 #:expiration ,expiration)
+      `(buy ,qty-stx put #:strike ,strike2 #:expiration ,expiration))]
 
     ;; Iron condor
     [(eq? strategy 'iron-condor)
      (define-values (k1 k2 k3 k4 expiration) (apply values args-list))
      (list
-      `(buy 1 put  #:strike ,k1 #:expiration ,expiration)
-      `(sell 1 put #:strike ,k2 #:expiration ,expiration)
-      `(sell 1 call #:strike ,k3 #:expiration ,expiration)
-      `(buy 1 call #:strike ,k4 #:expiration ,expiration))]
+      `(buy ,qty-stx put  #:strike ,k1 #:expiration ,expiration)
+      `(sell ,qty-stx put #:strike ,k2 #:expiration ,expiration)
+      `(sell ,qty-stx call #:strike ,k3 #:expiration ,expiration)
+      `(buy ,qty-stx call #:strike ,k4 #:expiration ,expiration))]
 
     ;; Iron butterfly
     [(eq? strategy 'iron-butterfly)
      (define-values (k1 k2 k3 expiration) (apply values args-list))
      (list
-      `(buy 1 put  #:strike ,k1 #:expiration ,expiration)
-      `(sell 1 put  #:strike ,k2 #:expiration ,expiration)
-      `(sell 1 call #:strike ,k2 #:expiration ,expiration)
-      `(buy 1 call #:strike ,k3 #:expiration ,expiration))]
+      `(buy ,qty-stx put  #:strike ,k1 #:expiration ,expiration)
+      `(sell ,qty-stx put  #:strike ,k2 #:expiration ,expiration)
+      `(sell ,qty-stx call #:strike ,k2 #:expiration ,expiration)
+      `(buy ,qty-stx call #:strike ,k3 #:expiration ,expiration))]
 
     ;; Long straddle
     [(eq? strategy 'long-straddle)
      (define-values (strike expiration) (apply values args-list))
      (list
-      `(buy 1 call #:strike ,strike #:expiration ,expiration)
-      `(buy 1 put  #:strike ,strike #:expiration ,expiration))]
+      `(buy ,qty-stx call #:strike ,strike #:expiration ,expiration)
+      `(buy ,qty-stx put  #:strike ,strike #:expiration ,expiration))]
 
     ;; Long strangle
     [(eq? strategy 'long-strangle)
      (define-values (put-strike call-strike expiration) (apply values args-list))
      (list
-      `(buy 1 put  #:strike ,put-strike  #:expiration ,expiration)
-      `(buy 1 call #:strike ,call-strike #:expiration ,expiration))]
+      `(buy ,qty-stx put  #:strike ,put-strike  #:expiration ,expiration)
+      `(buy ,qty-stx call #:strike ,call-strike #:expiration ,expiration))]
 
     ;; Covered call
     [(eq? strategy 'covered-call)
      (define-values (strike expiration) (apply values args-list))
      (list
-      '(buy 100 shares)
-      `(sell 1 call #:strike ,strike #:expiration ,expiration))]
+      '(buy qty*100-stx shares)
+      `(sell ,qty-stx call #:strike ,strike #:expiration ,expiration))]
 
     ;; Collar
     [(eq? strategy 'collar)
      (define-values (long-put-strike short-call-strike expiration) (apply values args-list))
      (list
-      '(buy 100 shares)
-      `(buy 1  put  #:strike ,long-put-strike  #:expiration ,expiration)
-      `(sell 1 call #:strike ,short-call-strike #:expiration ,expiration))]
+      `(buy ,qty*100-stx shares)
+      `(buy ,qty-stx  put  #:strike ,long-put-strike  #:expiration ,expiration)
+      `(sell ,qty-stx call #:strike ,short-call-strike #:expiration ,expiration))]
 
-    ;; Diagonal call spread (example)
+    ;; Diagonal call spread
     [(eq? strategy 'diagonal-call-spread)
      (define-values (near-strike near-expiration far-strike far-expiration)
        (apply values args-list))
      (list
-      `(buy 1 call #:strike ,far-strike  #:expiration ,far-expiration)
-      `(sell 1 call #:strike ,near-strike #:expiration ,near-expiration))]
+      `(buy ,qty-stx call #:strike ,far-strike  #:expiration ,far-expiration)
+      `(sell ,qty-stx call #:strike ,near-strike #:expiration ,near-expiration))]
 
         [else
      (error "Unknown strategy:" strategy)]))
@@ -272,15 +277,14 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
         #:safe-mode safe:expr
         (~optional [~seq #:volatility vol:expr] #:defaults ([vol #'0.2]))
         (~optional [~seq #:risk-free-rate rfr:expr] #:defaults ([rfr #'0.05]))
+        (~optional [~seq #:quantity q:expr] #:defaults ([q #'1]))
         (strategy-type:id args:expr ...))
 
-     ;; Convert syntax to raw Racket values
+
      (define strategy (syntax-e #'strategy-type))
      (define args-list (map syntax-e (syntax->list #'(args ...))))
-
-     ;; Here’s the crucial difference:
-     ;; We generate the actual legs by calling the run-time function.
-     (define legs (expand-strategy-legs strategy args-list))
+  
+     (define legs (expand-strategy-legs strategy args-list #'q))
 
      #`(define-option-strategy strategy-name
          #:ticker         ticker
@@ -289,6 +293,7 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
          #:volatility     vol
          #:risk-free-rate rfr
          #,@legs)]))
+
 
 (define (share-payoff stock-price action quantity ticker-price)
   (let ([price-change (- stock-price ticker-price)])
@@ -342,6 +347,8 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
     (if (eq? action 'buy)
         (- intrinsic-value initial-cost)  ;; Buying: Pay premium upfront
         (- initial-cost intrinsic-value))))  ;; Limit gains beyond strike
+
+
 
 
 
@@ -411,7 +418,7 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 
 
 
-;; Helper 1: Calculate plot boundaries
+;; Calculate plot boundaries
 (define (get-plot-bounds strategies min-price max-price)
   (if (or min-price max-price)
       (values (or min-price
@@ -424,7 +431,7 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
                 (+ (apply max ticker-prices) 50)))))
 
 
-;; Helper 2: Create plot elements for a single strategy
+;;  Create plot elements for a single strategy
 (define (make-single-strategy-plot strategy label color x-min x-max)
   (define (payoff x) (total-strategy-payoff strategy x))
   (define breakevens (find-breakeven strategy x-min x-max 1))
@@ -471,7 +478,7 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 (define (graph-preview)
   (graph-multiple-strategies
    (list (list collar-shortened "Bull Call Spread" "blue"))
-   #:min-price 50  ; Optional manual price range
+   #:min-price 50  
    #:max-price 350))
 
 
