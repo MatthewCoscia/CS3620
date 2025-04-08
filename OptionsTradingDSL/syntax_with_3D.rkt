@@ -480,18 +480,13 @@
      #:title "Option Strategy Value Over Time (3D)"
      #:x-label "Stock Price"
      #:y-label "Days to Expiration"
-     #:z-label "Strategy Value"
+     #:z-label "Profit"
      #:x-min min-price
      #:x-max max-price
      #:y-min min-days
      #:y-max max-days
      #:width 1400
      #:height 600)))
-
-
-
-
-
 
 
 
