@@ -1,6 +1,6 @@
 #lang racket
 
-(require (for-syntax syntax/parse)
+(require (for-syntax racket/match syntax/parse)
          racket/date
          plot
          rackunit
@@ -278,33 +278,122 @@ than total purchased (no over-leveraging)."
 
 (define-syntax (define-option-strategy-shortcuts stx)
   (syntax-parse stx
-    [(_ strategy-name:id 
+    [(_ strategy-name:id
         #:ticker ticker:expr
         #:ticker-price cp:expr
         #:safe-mode safe:expr
         (~optional [~seq #:volatility vol:expr] #:defaults ([vol #'0.2]))
         (~optional [~seq #:risk-free-rate rfr:expr] #:defaults ([rfr #'0.05]))
-        (strategy-type:id strike1:expr strike2:expr expiration:expr))
+        (strategy-type:id args:expr ...))
      
+     ;; Convert the strategy-type into a symbol.
+     (define strategy (syntax-e #'strategy-type))
+     ;; Convert the rest of the args into actual Racket values (numbers, etc.).
+     (define args-list (map syntax-e (syntax->list #'(args ...))))
+
      (define expanded-legs
-       (case (syntax->datum #'strategy-type)
-         [(bull-call-spread)
-          (list 
-            #'(buy 1 call #:strike strike1 #:expiration expiration)
-            #'(sell 1 call #:strike strike2 #:expiration expiration))]
-         [(bear-put-spread)
-          (list
-            #'(buy 1 put #:strike strike1 #:expiration expiration)
-            #'(sell 1 put #:strike strike2 #:expiration expiration))]
-         [(long-call)
-          (list 
-            #'(buy 1 call #:strike strike1 #:expiration strike2))]
-         [(long-put)
-          (list
-            #'(buy 1 put #:strike strike1 #:expiration strike2))]
-         [else (raise-syntax-error 'define-option-strategy-shortcuts
-                                  "Unknown strategy type" #'strategy-type)]))
-     
+  (cond
+    ;; Already-defined strategies:
+
+    [(eq? strategy 'call-debit-spread)
+     (define-values (strike1 strike2 expiration) (apply values args-list))
+     (list
+      `(buy 1 call #:strike ,strike1 #:expiration ,expiration)
+      `(sell 1 call #:strike ,strike2 #:expiration ,expiration))]
+
+    [(eq? strategy 'put-debit-spread)
+     (define-values (strike1 strike2 expiration) (apply values args-list))
+     (list
+      `(buy 1 put #:strike ,strike1 #:expiration ,expiration)
+      `(sell 1 put #:strike ,strike2 #:expiration ,expiration))]
+
+    [(eq? strategy 'butterfly-spread)
+     (define-values (k1 k2 k3 expiration) (apply values args-list))
+     (list
+      `(buy 1 call #:strike ,k1 #:expiration ,expiration)
+      `(sell 2 call #:strike ,k2 #:expiration ,expiration)
+      `(buy 1 call #:strike ,k3 #:expiration ,expiration))]
+
+    ;; Additional strategies:
+
+    ;; Call credit spread
+    [(eq? strategy 'call-credit-spread)
+     (define-values (strike1 strike2 expiration) (apply values args-list))
+     (list
+      `(sell 1 call #:strike ,strike1 #:expiration ,expiration)
+      `(buy 1 call #:strike ,strike2 #:expiration ,expiration))]
+
+    ;; Put credit spread
+    [(eq? strategy 'put-credit-spread)
+     (define-values (strike1 strike2 expiration) (apply values args-list))
+     (list
+      `(sell 1 put #:strike ,strike1 #:expiration ,expiration)
+      `(buy 1 put #:strike ,strike2 #:expiration ,expiration))]
+
+    ;; Iron condor
+    [(eq? strategy 'iron-condor)
+     (define-values (k1 k2 k3 k4 expiration) (apply values args-list))
+     (list
+      `(buy 1 put  #:strike ,k1 #:expiration ,expiration)
+      `(sell 1 put #:strike ,k2 #:expiration ,expiration)
+      `(sell 1 call #:strike ,k3 #:expiration ,expiration)
+      `(buy 1 call #:strike ,k4 #:expiration ,expiration))]
+
+    ;; Iron butterfly
+    [(eq? strategy 'iron-butterfly)
+     (define-values (k1 k2 k3 expiration) (apply values args-list))
+     (list
+      `(buy 1 put  #:strike ,k1 #:expiration ,expiration)
+      `(sell 1 put  #:strike ,k2 #:expiration ,expiration)
+      `(sell 1 call #:strike ,k2 #:expiration ,expiration)
+      `(buy 1 call #:strike ,k3 #:expiration ,expiration))]
+
+    ;; Long straddle
+    [(eq? strategy 'long-straddle)
+     (define-values (strike expiration) (apply values args-list))
+     (list
+      `(buy 1 call #:strike ,strike #:expiration ,expiration)
+      `(buy 1 put  #:strike ,strike #:expiration ,expiration))]
+
+    ;; Long strangle
+    [(eq? strategy 'long-strangle)
+     (define-values (put-strike call-strike expiration) (apply values args-list))
+     (list
+      `(buy 1 put  #:strike ,put-strike  #:expiration ,expiration)
+      `(buy 1 call #:strike ,call-strike #:expiration ,expiration))]
+
+    ;; Covered call
+    [(eq? strategy 'covered-call)
+     (define-values (strike expiration) (apply values args-list))
+     (list
+      '(buy 100 shares)
+      `(sell 1 call #:strike ,strike #:expiration ,expiration))]
+
+    ;; Collar
+    [(eq? strategy 'collar)
+     (define-values (long-put-strike short-call-strike expiration) (apply values args-list))
+     (list
+      '(buy 100 shares)
+      `(buy 1  put  #:strike ,long-put-strike  #:expiration ,expiration)
+      `(sell 1 call #:strike ,short-call-strike #:expiration ,expiration))]
+
+    ;; Diagonal call spread (example)
+    [(eq? strategy 'diagonal-call-spread)
+     (define-values (near-strike near-expiration far-strike far-expiration)
+       (apply values args-list))
+     (list
+      `(buy 1 call #:strike ,far-strike  #:expiration ,far-expiration)
+      `(sell 1 call #:strike ,near-strike #:expiration ,near-expiration))]
+
+    ;; Fallback if strategy is not recognized:
+    [else
+     (raise-syntax-error
+      'define-option-strategy-shortcuts
+      "Unknown strategy type"
+      #'strategy-type)]))
+
+
+     ;; Finally, splice the expanded legs into the call to define-option-strategy
      #`(define-option-strategy strategy-name
          #:ticker ticker
          #:ticker-price cp
@@ -312,6 +401,8 @@ than total purchased (no over-leveraging)."
          #:volatility vol
          #:risk-free-rate rfr
          #,@expanded-legs)]))
+
+
 
 ;; Helper 1: Calculate plot boundaries
 (define (get-plot-bounds strategies min-price max-price)
@@ -402,21 +493,20 @@ than total purchased (no over-leveraging)."
   #:risk-free-rate 0.02  ;; 2% risk-free rate
   (buy 1 call #:strike 240 #:expiration 30 #:premium 7.50)
   (sell 1 call #:strike 320 #:expiration 30 #:premium 5.00))
-
-
-(define (graph-preview)
-  (graph-multiple-strategies
-   (list (list bullish-strat "Bull Call Spread" "blue")
-         (list safe-strat "Covered Strangle" "green")
-         (list high-vol-strat-prem "High Volatility" "red"))
-   #:min-price 50  ; Optional manual price range
-   #:max-price 350))
-
+#|
 (define-option-strategy-shortcuts bullish-strat-shortened
   #:ticker 'AAPL
   #:ticker-price 145.75
   #:safe-mode #t
-  (bull-call-spread 140 150 30))
+  (call-debit-spread 140 150 30))
+|#
+(define (graph-preview)
+  (graph-multiple-strategies
+   (list (list bullish-strat-shortened "Bull Call Spread" "blue"))
+   #:min-price 50  ; Optional manual price range
+   #:max-price 350))
+
+
 
 
 (define (graph-preview-single)
