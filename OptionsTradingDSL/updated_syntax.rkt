@@ -467,6 +467,7 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
   #:ticker 'AAPL
   #:ticker-price 145.75
   #:safe-mode #t
+  #:quantity 1
   (call-debit-spread 140 150 7))
 
 (define-option-strategy-shortcuts collar-shortened
@@ -489,4 +490,4 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
    (list (list bullish-strat-shortened "Bull Call Spread" "blue"))))
 
 
-(graph-preview)
+(graph-preview-single)
