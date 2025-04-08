@@ -1,169 +1,104 @@
 #lang racket
 
-(require (for-syntax racket/match syntax/parse)
+(require (for-syntax racket/base
+                     racket/match 
+                     racket/syntax
+                     syntax/parse)
          racket/date
          plot
          rackunit
          rackunit/text-ui
          math/special-functions)
 
-
-
+;; Define the structures
 (struct strategy (name ticker ticker-price safe-mode volatility
                       risk-free-rate legs)
   #:transparent)
-
 (struct option-leg (action qty type strike expiration premium)
   #:transparent)
+(struct shares-leg (action qty)
+  #:transparent)
 
-
+;; Define the syntax classes at compile time
 (begin-for-syntax
   (define-syntax-class action
-    (pattern (~or buy sell)))
+    #:description "buy or sell action"
+    (pattern act:id
+             #:when (memq (syntax->datum #'act) '(buy sell))))
+  
+  (define-syntax-class positive-whole-qty
+    #:description "positive whole number quantity"
+    (pattern n:expr
+             #:when (or (not (number? (syntax->datum #'n)))
+                        (and (integer? (syntax->datum #'n))
+                             (positive? (syntax->datum #'n))))))
   
   (define-syntax-class option-type
-    (pattern (~or call put)))
-
+    #:description "call or put option type"
+    (pattern t:id
+             #:when (memq (syntax->datum #'t) '(call put))))
+  
   (define-syntax-class non-negative-premium
-    #:description "non-negative premium"
-    (pattern p:expr
-      #:fail-when (and (number? (syntax-e #'p))
-                       (< (syntax-e #'p) 0))
-      "Premium must be non-negative."))
-
-  (define-syntax-class positive-whole-qty
-    #:description "positive whole number"
-    (pattern q:expr
-      #:fail-when (let ([v (syntax-e #'q)])
-                    (not (exact-positive-integer? v)))
-      "must be positive integer"))
+    #:description "non-negative premium value"
+    (pattern n:expr
+             #:when (or (not (number? (syntax->datum #'n)))
+                        (and (number? (syntax->datum #'n))
+                             (not (negative? (syntax->datum #'n)))))))
   
   (define-syntax-class ticker-symbol
-    #:description "ticker symbol"
-    (pattern t:expr
-      #:when (let ([v (syntax->datum #'t)])
-               (and (pair? v) 
-                    (eq? (car v) 'quote)
-                    (symbol? (cadr v))))
-      #:with ticker-value (let ([v (syntax->datum #'t)])
-                            (cadr v))))
+    #:description "stock ticker symbol"
+    (pattern sym:expr))
   
   (define-syntax-class positive-price
-    #:description "positive price"
-    (pattern p:expr
-      #:fail-when (let ([v (syntax-e #'p)])
-                    (and (number? v)
-                         (not (positive? v))))
-      "price must be positive"))
-             
+    #:description "positive price value"
+    (pattern n:expr
+             #:when (or (syntax->datum #'n)
+                        (and (number? (syntax->datum #'n))
+                             (positive? (syntax->datum #'n))))))
+  
   (define-syntax-class safe-mode
-    #:description "safety mode setting"
-    (pattern (~or #t #f))))
+    #:description "safety mode boolean"
+    (pattern b:expr))
+   
+  (define-syntax-class leg-pattern
+    #:description "option or shares leg pattern"
+    (pattern (action:action
+              qty:positive-whole-qty
+              type:option-type
+              #:strike s:expr
+              #:expiration exp:expr
+              (~optional (~seq #:premium p:non-negative-premium)
+                         #:defaults ([p #'#f])))
+             #:with result #'(option-leg 'action.act qty 'type.t s exp p))
+    (pattern (action:action
+              qty:positive-whole-qty
+              #:shares)
+             #:with result #'(shares-leg 'action.act qty))))
 
- 
-
+;; Define the main macro
 (define-syntax (define-option-strategy stx)
   (syntax-parse stx
-    [(_ strategy-name:id 
+    [(_ strategy-name:id
         #:ticker ticker:ticker-symbol
         #:ticker-price cp:positive-price
         #:safe-mode safe:safe-mode
-        (~optional [~seq #:volatility vol:expr]
-                   #:defaults ([vol #'0.2])) ;; Default Volatility: 20%
-        (~optional [~seq #:risk-free-rate rfr:expr]
-                   #:defaults ([rfr #'0.05])) ;; Default Risk-Free Rate: 5%
-        (action:action qty:positive-whole-qty 
-                       type:option-type 
-                       #:strike s:expr 
-                       #:expiration exp:number
-                       (~optional [~seq #:premium p:non-negative-premium]
-                                  #:defaults ([p #'#f]))) ...)
+        (~optional (~seq #:volatility vol:expr)
+                   #:defaults ([vol #'0.2]))    ;; Default Volatility: 20%
+        (~optional (~seq #:risk-free-rate rfr:expr)
+                   #:defaults ([rfr #'0.05]))   ;; Default Risk-Free Rate: 5%
+        legs:leg-pattern ...)
      
-
-     #:with (premium-sym ...)
-     (map (λ (p-stx)
-            (if (equal? (syntax->datum p-stx) #f)
-                #'#f  ;; Flag for later calculation
-                p-stx))
-          (syntax->list #'(p ...)))
-     
-     ;; Combined check for both naked calls and puts
-     #:fail-when (and (equal? (syntax-e #'safe) #t)
-                      (for/or ([exp (syntax->list #'(exp ...))])
-                        (< (syntax-e exp) 0)))
-     "Expiration date must be between 7 and 365 days"
-
-
-     #:fail-when (and (equal? (syntax-e #'safe) #t)
-                      (for/or ([a (syntax->list #'(action ...))]
-                               [q (syntax->list #'(qty ...))])
-                        (and
-                         (eq? (syntax-e a) 'sell)
-                         (> (syntax-e q)
-                            (apply + (map syntax-e
-                                          (syntax->list #'(qty ...))))))))
-     "Safe mode: Cannot sell more option contracts
-than total purchased (no over-leveraging)."
-
-
-     #:fail-when (and (equal? (syntax-e #'safe) #t)
-                      (let ([cp (syntax-e #'cp)])  
-                        (for/or ([s (syntax->list #'(s ...))])
-                          (> (abs (- (syntax-e s) cp)) (* cp 0.3)))))
-     "Safe mode: Strike price must be within 30% of the current price."
-
-
-     #:fail-when (and (equal? (syntax-e #'safe) #t)
-                 (for/or ([option-type '(put call)])
-                   (and (for/or ([a (syntax->list #'(action ...))]
-                                [t (syntax->list #'(type ...))])
-                          (and (eq? (syntax-e a) 'sell)
-                               (eq? (syntax-e t) option-type)))
-                        (not (for/or ([a2 (syntax->list #'(action ...))]
-                                      [t2 (syntax->list #'(type ...))]
-                                      [q2 (syntax->list #'(qty ...))])
-                               (and (eq? (syntax-e a2) 'buy)
-                                    (eq? (syntax-e t2) option-type)
-                                    (>= (syntax-e q2) 1)))))))
-     "Naked short calls or puts are not allowed in safe mode"
-     
- #`(define strategy-name
+     #`(define strategy-name
          (strategy
-          'strategy-name         ; You can change this if you want to use the actual identifier.
-          'ticker               ; Same here: adjust to use the provided ticker.
-          cp                    ; Ticker price.
-          safe                  ; Safe mode.
-          vol                   ; Volatility.
-          rfr                   ; Risk-free rate.
-          (list
-           (option-leg 'action qty 'type s exp p)
-           ...)))]))
+          'strategy-name
+          ticker.sym          ;; Ticker symbol
+          cp                  ;; Ticker price
+          safe                ;; Safe mode?
+          vol                 ;; Volatility
+          rfr                 ;; Risk-free rate
+          (list legs.result ...)))]))
 
 
-(define-syntax (bull-call-spread stx)
-  (syntax-parse stx
-    [(_ low high expiration)
-     #'(begin
-         (buy 1 call
-              #:strike low
-              #:expiration expiration)
-         (sell 1 call
-               #:strike high
-               #:expiration expiration))]))
-
-
-
-(define (parse-options strategy)
-  (map (lambda (leg)
-         (match leg
-           [(list action qty type strike exp-days premium)
-            (hash 'action action
-                  'quantity qty
-                  'type type
-                  'strike strike
-                  'expiration exp-days
-                  'premium premium)]))
-       (hash-ref strategy 'legs)))
 
 
 
@@ -275,26 +210,8 @@ than total purchased (no over-leveraging)."
     (printf "Stock Price: ~a | Payoff: ~a\n"
             price
             (total-strategy-payoff strat price))))
-
-(define-syntax (define-option-strategy-shortcuts stx)
-  (syntax-parse stx
-    [(_ strategy-name:id
-        #:ticker ticker:expr
-        #:ticker-price cp:expr
-        #:safe-mode safe:expr
-        (~optional [~seq #:volatility vol:expr] #:defaults ([vol #'0.2]))
-        (~optional [~seq #:risk-free-rate rfr:expr] #:defaults ([rfr #'0.05]))
-        (strategy-type:id args:expr ...))
-     
-     ;; Convert the strategy-type into a symbol.
-     (define strategy (syntax-e #'strategy-type))
-     ;; Convert the rest of the args into actual Racket values (numbers, etc.).
-     (define args-list (map syntax-e (syntax->list #'(args ...))))
-
-     (define expanded-legs
+(define-for-syntax (expand-strategy-legs strategy args-list)
   (cond
-    ;; Already-defined strategies:
-
     [(eq? strategy 'call-debit-spread)
      (define-values (strike1 strike2 expiration) (apply values args-list))
      (list
@@ -313,8 +230,6 @@ than total purchased (no over-leveraging)."
       `(buy 1 call #:strike ,k1 #:expiration ,expiration)
       `(sell 2 call #:strike ,k2 #:expiration ,expiration)
       `(buy 1 call #:strike ,k3 #:expiration ,expiration))]
-
-    ;; Additional strategies:
 
     ;; Call credit spread
     [(eq? strategy 'call-credit-spread)
@@ -385,22 +300,35 @@ than total purchased (no over-leveraging)."
       `(buy 1 call #:strike ,far-strike  #:expiration ,far-expiration)
       `(sell 1 call #:strike ,near-strike #:expiration ,near-expiration))]
 
-    ;; Fallback if strategy is not recognized:
-    [else
-     (raise-syntax-error
-      'define-option-strategy-shortcuts
-      "Unknown strategy type"
-      #'strategy-type)]))
+        [else
+     (error "Unknown strategy:" strategy)]))
 
+(define-syntax (define-option-strategy-shortcuts stx)
+  (syntax-parse stx
+    [(_ strategy-name:id
+        #:ticker ticker:expr
+        #:ticker-price cp:expr
+        #:safe-mode safe:expr
+        (~optional [~seq #:volatility vol:expr] #:defaults ([vol #'0.2]))
+        (~optional [~seq #:risk-free-rate rfr:expr] #:defaults ([rfr #'0.05]))
+        (strategy-type:id args:expr ...))
 
-     ;; Finally, splice the expanded legs into the call to define-option-strategy
+     ;; Convert syntax to raw Racket values
+     (define strategy (syntax-e #'strategy-type))
+     (define args-list (map syntax-e (syntax->list #'(args ...))))
+
+     ;; Here’s the crucial difference:
+     ;; We generate the actual legs by calling the run-time function.
+     (define legs (expand-strategy-legs strategy args-list))
+
      #`(define-option-strategy strategy-name
-         #:ticker ticker
-         #:ticker-price cp
-         #:safe-mode safe
-         #:volatility vol
+         #:ticker         ticker
+         #:ticker-price   cp
+         #:safe-mode      safe
+         #:volatility     vol
          #:risk-free-rate rfr
-         #,@expanded-legs)]))
+         #,@legs)]))
+    ;; Already-defined strategies:
 
 
 
@@ -493,16 +421,22 @@ than total purchased (no over-leveraging)."
   #:risk-free-rate 0.02  ;; 2% risk-free rate
   (buy 1 call #:strike 240 #:expiration 30 #:premium 7.50)
   (sell 1 call #:strike 320 #:expiration 30 #:premium 5.00))
-#|
+
 (define-option-strategy-shortcuts bullish-strat-shortened
   #:ticker 'AAPL
   #:ticker-price 145.75
   #:safe-mode #t
-  (call-debit-spread 140 150 30))
-|#
+  (call-debit-spread 140 150 7))
+
+(define-option-strategy-shortcuts collar-shortened
+  #:ticker 'AAPL
+  #:ticker-price 145.75
+  #:safe-mode #t
+  (call-debit-spread 140 150 7))
+
 (define (graph-preview)
   (graph-multiple-strategies
-   (list (list bullish-strat-shortened "Bull Call Spread" "blue"))
+   (list (list high-vol-strat-prem "Bull Call Spread" "blue"))
    #:min-price 50  ; Optional manual price range
    #:max-price 350))
 
