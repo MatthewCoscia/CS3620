@@ -609,7 +609,7 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
    (list (list bullish-strat-shortened "Bull Call Spread" "blue"))
    #:3d #t))
 
-(define-option-strategy long-term-call-spread
+(define-option-strategy decaying-call-spread
   #:ticker 'AAPL
   #:ticker-price 150
   #:safe-mode #f
@@ -618,7 +618,8 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
   (buy 1 call #:strike 145 #:expiration 1000)
   (sell 1 call #:strike 155 #:expiration 1000))
 
-(define-option-strategy long-term-put-spread
+
+(define-option-strategy decaying-put-spread
   #:ticker 'AAPL
   #:ticker-price 150
   #:safe-mode #f
@@ -628,13 +629,56 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
   (sell 1 put #:strike 145 #:expiration 1000))
 
 
+
 (define (3dtest)
   (graph-decision
-   (list (list long-term-call-spread "Call Spread" "blue")
-         (list long-term-put-spread "Put Spread" "red"))
-   #:3d #t))
+   (list (list decaying-call-spread "Call Debit Spread" "blue")
+         (list decaying-put-spread "Put Debit Spread" "red"))
+   #:3d #f))
+
+
+(define-option-strategy call-alone
+  #:ticker 'AAPL
+  #:ticker-price 150
+  #:safe-mode #f
+  #:volatility 0.3
+  #:risk-free-rate 0.02
+  (buy 1 call #:strike 145 #:expiration 1000))
+
+(graph-decision
+ (list (list call-alone "Long Call" "purple"))
+ #:3d #t)
+
+(define-option-strategy covered-call-test
+  #:ticker 'AAPL
+  #:ticker-price 150
+  #:safe-mode #f
+  (buy 100 shares)
+  (sell 1 call #:strike 160 #:expiration 30))
+
+(define-option-strategy protective-put-test
+  #:ticker 'AAPL
+  #:ticker-price 150
+  #:safe-mode #f
+  (buy 100 shares)
+  (buy 1 put #:strike 140 #:expiration 30))
+
+(define-option-strategy synthetic-short-put
+  #:ticker 'AAPL
+  #:ticker-price 150
+  #:safe-mode #f
+  (sell 100 shares)
+  (buy 1 call #:strike 150 #:expiration 30))
+
+(define (share-test)
+  (graph-decision
+   (list (list covered-call-test "Covered Call" "blue")
+         (list protective-put-test "Protective Put" "green")
+         (list synthetic-short-put "Synthetic Short Put" "red"))
+   #:3d #f))
 
 
 
 
+#;
 (graph-preview-single)
