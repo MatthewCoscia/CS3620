@@ -10,11 +10,9 @@
          rackunit/text-ui
          math/special-functions)
 
-
-
 ;; Define the structures
 (struct strategy (name ticker ticker-price safe-mode volatility
-                      risk-free-rate legs)
+                      risk-free-rate legs enable3d?)
   #:transparent)
 (struct option-leg (action qty type strike expiration premium)
   #:transparent)
@@ -90,7 +88,8 @@
         (~optional (~seq #:volatility vol:expr)
                    #:defaults ([vol #'0.2]))    ;; Default Volatility: 20%
         (~optional (~seq #:risk-free-rate rfr:expr)
-                   #:defaults ([rfr #'0.05]))   ;; Default Risk-Free Rate: 5%
+                   #:defaults ([rfr #'0.05]))   ;; Default Risk-Free Rate: 5%'
+        (~optional (~seq #:3d e3d:expr) #:defaults ([e3d #'#f]))
         legs:leg-pattern ...)
      
      #`(define strategy-name
@@ -101,8 +100,8 @@
           safe                ;; Safe mode?
           vol                 ;; Volatility
           rfr                 ;; Risk-free rate
-          (list legs.result ...)))]))
-
+          (list legs.result ...)
+          e3d))]))
 
 (define-for-syntax (expand-strategy-legs strategy args-list)
   (cond
@@ -205,14 +204,12 @@
         #:safe-mode safe:expr
         (~optional [~seq #:volatility vol:expr] #:defaults ([vol #'0.2]))
         (~optional [~seq #:risk-free-rate rfr:expr] #:defaults ([rfr #'0.05]))
+        (~optional (~seq #:3d e3d:expr) #:defaults ([e3d #'#f]))
         (strategy-type:id args:expr ...))
 
-     ;; Convert syntax to raw Racket values
      (define strategy (syntax-e #'strategy-type))
      (define args-list (map syntax-e (syntax->list #'(args ...))))
 
-     ;; Here’s the crucial difference:
-     ;; We generate the actual legs by calling the run-time function.
      (define legs (expand-strategy-legs strategy args-list))
 
      #`(define-option-strategy strategy-name
@@ -221,6 +218,7 @@
          #:safe-mode      safe
          #:volatility     vol
          #:risk-free-rate rfr
+         #:3d             e3d
          #,@legs)]))
 
 (define (share-payoff stock-price action quantity ticker-price)
@@ -278,7 +276,12 @@
 
 
 
-
+(define (graph-decision strat
+                        #:label [lbl (symbol->string (strategy-name strat))]
+                        #:color [clr "blue"])
+  (if (strategy-enable3d? strat)
+      (graph-multiple-strategies-3d (list (list strat lbl clr)))
+      (graph-multiple-strategies    (list (list strat lbl clr)))))
 
 
 
@@ -345,6 +348,72 @@
             (total-strategy-payoff strat price))))
 
 
+(define (option-value-at-time stock-price
+                              strike
+                              action
+                              type
+                              quantity
+                              premium
+                              risk-free-rate
+                              volatility
+                              days-remaining
+                              ticker-price)
+  ;; T: fraction of year left
+  (let* ([T (/ days-remaining 365.0)]
+         ;; If user did not specify premium (#f), we auto-calc using Black-Scholes at current stock-price
+         [actual-premium
+          (if (equal? premium #f)
+              (calculate-premium strike
+                                 ticker-price
+                                 T
+                                 risk-free-rate
+                                 volatility
+                                 type)
+              premium)]
+         ;; The option's “fair value” at the current stock-price
+         [bs-value
+          (calculate-premium strike
+                             stock-price
+                             T
+                             risk-free-rate
+                             volatility
+                             type)]
+         [net-value (* quantity bs-value)]
+         [cost      (* quantity actual-premium)])
+    (if (eq? action 'buy)
+        (- net-value cost)  ;; Buying the option means net gain is BS-value - cost
+        (- cost net-value)))) ;; Selling the option means net gain is cost - BS-value
+
+(define (total-strategy-value-at-time strat stock-price days-remaining)
+  (let* ([legs            (strategy-legs strat)]
+         [ticker-price    (strategy-ticker-price strat)]
+         [volatility      (strategy-volatility strat)]
+         [risk-free-rate  (strategy-risk-free-rate strat)])
+    (apply +
+           (map
+            (λ (leg)
+              (cond
+                [(option-leg? leg)
+                 (option-value-at-time stock-price
+                                       (option-leg-strike leg)
+                                       (option-leg-action leg)
+                                       (option-leg-type leg)
+                                       (option-leg-qty leg)
+                                       (option-leg-premium leg)
+                                       risk-free-rate
+                                       volatility
+                                       days-remaining
+                                       ticker-price)]
+                [(shares-leg? leg)
+                 ;; Shares payoff is basically stock-price - cost basis:
+                 (share-payoff stock-price
+                               (shares-leg-action leg)
+                               (shares-leg-qty leg)
+                               ticker-price)]
+                [else
+                 (error "Unknown leg type" leg)]))
+            legs))))
+
 
 
 
@@ -391,6 +460,39 @@
             #:height 600
             #:legend-anchor 'outside-right))))
 
+(define (graph-multiple-strategies-3d strategies
+                                      #:min-price [min-price 50]
+                                      #:max-price [max-price 350]
+                                      #:min-days [min-days 1]
+                                      #:max-days [max-days 60]
+                                      #:price-step [price-step 5]
+                                      #:day-step [day-step 2])
+  (parameterize ([plot-new-window? #t])
+    (plot3d
+     (append
+      (for/list ([strat-info strategies])
+        (match-define (list strategy label color) strat-info)
+        (surface3d
+         (λ (x y)
+           (total-strategy-value-at-time strategy x y))
+         min-price max-price
+         min-days max-days)))
+     #:title "Option Strategy Value Over Time (3D)"
+     #:x-label "Stock Price"
+     #:y-label "Days to Expiration"
+     #:z-label "Strategy Value"
+     #:x-min min-price
+     #:x-max max-price
+     #:y-min min-days
+     #:y-max max-days
+     #:width 1400
+     #:height 600)))
+
+
+
+
+
+
 
 
 (define-option-strategy-shortcuts bullish-strat-shortened
@@ -407,19 +509,42 @@
 
 (define (graph-preview)
   (graph-multiple-strategies
-   (list (list collar-shortened "Bull Call Spread" "blue"))
+   (list (list collar-shortened "Bull Call Spread" "blue")
+         (list bullish-strat-shortened "Bullish Short" "red"))
    #:min-price 50  ; Optional manual price range
    #:max-price 350))
-
-
-
 
 (define (graph-preview-single)
   (graph-multiple-strategies
    (list (list bullish-strat-shortened "Bull Call Spread" "blue"))))
 
 
-(graph-preview)
-(provide define-option-strategy
-         calculate-premium
-         option-payoff)
+
+(define-option-strategy fancy-custom-strat
+  #:ticker 'TSLA
+  #:ticker-price 250
+  #:safe-mode #f
+  ;; Turn on 3D for fun
+  #:3d #t
+  (buy 1 call #:strike 240 #:expiration 30)
+  (sell 1 call #:strike 260 #:expiration 30)
+  (buy 1 put  #:strike 230 #:expiration 30))
+
+
+(define-option-strategy bigtime-3d
+  #:ticker 'FAKE
+  #:ticker-price 100
+  #:safe-mode #f
+  #:volatility 1.2
+  #:risk-free-rate 0.0
+  #:3d #t
+  (buy 1 call #:strike 100 #:expiration 60))
+
+
+(graph-decision bigtime-3d 
+                #:label "High Vol ATM Call"
+                #:color "purple")
+
+
+
+

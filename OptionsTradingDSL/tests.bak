@@ -1,16 +1,4 @@
 #lang racket
-(require (for-syntax racket/base
-                     racket/match 
-                     racket/syntax
-                     syntax/parse)
-         racket/date
-         plot
-         rackunit
-         rackunit/text-ui
-         math/special-functions)
-
-(require "updated_syntax.rkt")
-
 ;; Example that would error
 (define-option-strategy risky-strat
   #:ticker 'TSLA
