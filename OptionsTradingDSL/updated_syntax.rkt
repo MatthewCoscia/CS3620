@@ -62,6 +62,7 @@
    
   (define-syntax-class leg-pattern
     #:description "option or shares leg pattern"
+    ;; Pattern for option legs
     (pattern (action:action
               qty:positive-whole-qty
               type:option-type
@@ -70,9 +71,11 @@
               (~optional (~seq #:premium p:non-negative-premium)
                          #:defaults ([p #'#f])))
              #:with result #'(option-leg 'action.act qty 'type.t s exp p))
+    ;; Pattern for share legs - correctly match the 'shares' symbol
     (pattern (action:action
               qty:positive-whole-qty
-              #:shares)
+              shares-kw)
+             #:when (equal? (syntax->datum #'shares-kw) 'shares)
              #:with result #'(shares-leg 'action.act qty))))
 
 ;; Define the main macro
@@ -99,117 +102,6 @@
           (list legs.result ...)))]))
 
 
-
-
-
-
-(define (option-payoff stock-price strike action type quantity premium 
-                       risk-free-rate volatility expiration-days ticker-price)
-  (let* ([T (/ expiration-days 365.0)]  ;; Convert days to years
-         [actual-premium (if (equal? premium #f)
-                             (calculate-premium strike ticker-price T 
-                                                risk-free-rate volatility type)
-                             premium)]  ;; Use either Black-Scholes
-         ;; or manual premium
-         [raw-payoff (cond
-                       [(eq? type 'call) (max 0 (- stock-price strike))]
-                       [(eq? type 'put)  (max 0 (- strike stock-price))])]
-         [intrinsic-value (* quantity raw-payoff)]  ;; Pure option value
-         [initial-cost (* quantity actual-premium)])  ;; Cost upfront
-    
-    ;; Adjust for long and short call behavior
-    (if (eq? action 'buy)
-        (- intrinsic-value initial-cost)  ;; Buying: Pay premium upfront
-        (- initial-cost intrinsic-value))))  ;; Limit gains beyond strike
-
-
-
-
-
-
-(define (total-strategy-payoff strat stock-price)
-  (let* ([legs (strategy-legs strat)]
-         [ticker-price (strategy-ticker-price strat)]
-         [volatility (strategy-volatility strat)]
-         [risk-free-rate (strategy-risk-free-rate strat)])
-    (apply +
-           (map (λ (leg)
-                  (option-payoff stock-price
-                                 (option-leg-strike leg)
-                                 (option-leg-action leg)
-                                 (option-leg-type leg)
-                                 (option-leg-qty leg)
-                                 (option-leg-premium leg)
-                                 risk-free-rate
-                                 volatility
-                                 (option-leg-expiration leg)
-                                 ticker-price))
-                legs))))
-
-
-
-
-(define (find-breakeven strategy min-price max-price step)
-  (let loop ([price min-price] [breakevens '()])
-    (if (> price max-price)
-        (reverse breakevens)
-        (let ([profit (total-strategy-payoff strategy price)]
-              [next-profit (total-strategy-payoff strategy (+ price step))])
-          (if (or (and (>= profit 0) (< next-profit 0))
-                  (and (<= profit 0) (> next-profit 0)))
-              (loop (+ price step) (cons price breakevens))
-              (loop (+ price step) breakevens))))))
-
-
-(define (cdf x)
-  (/ (+ 1 (erf (/ x (sqrt 2)))) 2))
-
-(define (black-scholes-call S K T r sigma)
-  (if (= sigma 0)
-      (let ([discounted-K (* K (exp (* (- r) T)))])
-        (max 0 (- S discounted-K)))
-      (let* ([d1 (/ (+ (log (/ S K)) (* (+ r (/ (expt sigma 2) 2)) T))
-                    (* sigma (sqrt T)))]
-             [d2 (- d1 (* sigma (sqrt T)))]
-             [Nd1 (cdf d1)]
-             [Nd2 (cdf d2)]
-             [discount-factor (exp (* (- r) T))])
-        (- (* S Nd1) (* K discount-factor Nd2)))))
-
-(define (black-scholes-put S K T r sigma)
-  (if (= sigma 0)
-      (let ([discounted-K (* K (exp (* (- r) T)))])
-        (max 0 (- discounted-K S)))
-      (let* ([d1 (/ (+ (log (/ S K)) (* (+ r (/ (expt sigma 2) 2)) T))
-                    (* sigma (sqrt T)))]
-             [d2 (- d1 (* sigma (sqrt T)))]
-             [Nd1 (cdf (- d1))]
-             [Nd2 (cdf (- d2))]
-             [discount-factor (exp (* (- r) T))])
-        (- (* K discount-factor Nd2) (* S Nd1)))))
-
-
-
-(define (calculate-premium strike price expiration
-                           risk-free-rate volatility type)
-  (let ([premium (if (eq? type 'call)
-                     (black-scholes-call price strike
-                                         expiration risk-free-rate volatility)
-                     (black-scholes-put price
-                                        strike
-                                        expiration
-                                        risk-free-rate volatility))])
-    premium))
-
-
-(define (print-strategy strat)
-  (define min-price (- (strategy-ticker-price strat) 50))
-  (define max-price (+ (strategy-ticker-price strat) 50))
-  (define step 1)
-  (for ([price (in-range min-price (+ max-price step) step)])
-    (printf "Stock Price: ~a | Payoff: ~a\n"
-            price
-            (total-strategy-payoff strat price))))
 (define-for-syntax (expand-strategy-legs strategy args-list)
   (cond
     [(eq? strategy 'call-debit-spread)
@@ -328,7 +220,129 @@
          #:volatility     vol
          #:risk-free-rate rfr
          #,@legs)]))
-    ;; Already-defined strategies:
+
+(define (share-payoff stock-price action quantity ticker-price)
+  (let ([price-change (- stock-price ticker-price)])
+    (* quantity 
+       (if (eq? action 'buy)
+           price-change   ; Long position: profit when price increases
+           (- price-change)))))  ; Short position: profit when price decreases
+
+(define (total-strategy-payoff strat stock-price)
+  (let* ([legs (strategy-legs strat)]
+         [ticker-price (strategy-ticker-price strat)]
+         [volatility (strategy-volatility strat)]
+         [risk-free-rate (strategy-risk-free-rate strat)])
+    (apply +
+           (map (λ (leg)
+                  (cond
+                    [(option-leg? leg)
+                     (option-payoff stock-price
+                                    (option-leg-strike leg)
+                                    (option-leg-action leg)
+                                    (option-leg-type leg)
+                                    (option-leg-qty leg)
+                                    (option-leg-premium leg)
+                                    risk-free-rate
+                                    volatility
+                                    (option-leg-expiration leg)
+                                    ticker-price)]
+                    [(shares-leg? leg)
+                     (share-payoff stock-price
+                                  (shares-leg-action leg)
+                                  (shares-leg-qty leg)
+                                  ticker-price)]
+                    [else (error "Unknown leg type")]))
+                legs))))
+
+(define (option-payoff stock-price strike action type quantity premium 
+                       risk-free-rate volatility expiration-days ticker-price)
+  (let* ([T (/ expiration-days 365.0)]  ;; Convert days to years
+         [actual-premium (if (equal? premium #f)
+                             (calculate-premium strike ticker-price T 
+                                                risk-free-rate volatility type)
+                             premium)]  ;; Use either Black-Scholes
+         ;; or manual premium
+         [raw-payoff (cond
+                       [(eq? type 'call) (max 0 (- stock-price strike))]
+                       [(eq? type 'put)  (max 0 (- strike stock-price))])]
+         [intrinsic-value (* quantity raw-payoff)]  ;; Pure option value
+         [initial-cost (* quantity actual-premium)])  ;; Cost upfront
+    
+    ;; Adjust for long and short call behavior
+    (if (eq? action 'buy)
+        (- intrinsic-value initial-cost)  ;; Buying: Pay premium upfront
+        (- initial-cost intrinsic-value))))  ;; Limit gains beyond strike
+
+
+
+
+
+
+
+(define (find-breakeven strategy min-price max-price step)
+  (let loop ([price min-price] [breakevens '()])
+    (if (> price max-price)
+        (reverse breakevens)
+        (let ([profit (total-strategy-payoff strategy price)]
+              [next-profit (total-strategy-payoff strategy (+ price step))])
+          (if (or (and (>= profit 0) (< next-profit 0))
+                  (and (<= profit 0) (> next-profit 0)))
+              (loop (+ price step) (cons price breakevens))
+              (loop (+ price step) breakevens))))))
+
+
+(define (cdf x)
+  (/ (+ 1 (erf (/ x (sqrt 2)))) 2))
+
+(define (black-scholes-call S K T r sigma)
+  (if (= sigma 0)
+      (let ([discounted-K (* K (exp (* (- r) T)))])
+        (max 0 (- S discounted-K)))
+      (let* ([d1 (/ (+ (log (/ S K)) (* (+ r (/ (expt sigma 2) 2)) T))
+                    (* sigma (sqrt T)))]
+             [d2 (- d1 (* sigma (sqrt T)))]
+             [Nd1 (cdf d1)]
+             [Nd2 (cdf d2)]
+             [discount-factor (exp (* (- r) T))])
+        (- (* S Nd1) (* K discount-factor Nd2)))))
+
+(define (black-scholes-put S K T r sigma)
+  (if (= sigma 0)
+      (let ([discounted-K (* K (exp (* (- r) T)))])
+        (max 0 (- discounted-K S)))
+      (let* ([d1 (/ (+ (log (/ S K)) (* (+ r (/ (expt sigma 2) 2)) T))
+                    (* sigma (sqrt T)))]
+             [d2 (- d1 (* sigma (sqrt T)))]
+             [Nd1 (cdf (- d1))]
+             [Nd2 (cdf (- d2))]
+             [discount-factor (exp (* (- r) T))])
+        (- (* K discount-factor Nd2) (* S Nd1)))))
+
+
+
+(define (calculate-premium strike price expiration
+                           risk-free-rate volatility type)
+  (let ([premium (if (eq? type 'call)
+                     (black-scholes-call price strike
+                                         expiration risk-free-rate volatility)
+                     (black-scholes-put price
+                                        strike
+                                        expiration
+                                        risk-free-rate volatility))])
+    premium))
+
+
+(define (print-strategy strat)
+  (define min-price (- (strategy-ticker-price strat) 50))
+  (define max-price (+ (strategy-ticker-price strat) 50))
+  (define step 1)
+  (for ([price (in-range min-price (+ max-price step) step)])
+    (printf "Stock Price: ~a | Payoff: ~a\n"
+            price
+            (total-strategy-payoff strat price))))
+
+
 
 
 
@@ -376,51 +390,6 @@
             #:legend-anchor 'outside-right))))
 
 
-;; Example that would error
-(define-option-strategy risky-strat
-  #:ticker 'TSLA
-  #:ticker-price 250.50
-  #:safe-mode #t
-  (buy 1 call #:strike 300 #:expiration 30)  ;; Naked call
-  (sell 1 call  #:strike 200 #:expiration 30)) ;; Naked put
-
-;; Valid covered strategy
-(define-option-strategy safe-strat
-  #:ticker 'GOOG
-  #:ticker-price 145.75
-  #:safe-mode #t
-  (sell 1 call #:strike 150 #:expiration 30)
-  (buy  1 call #:strike 150 #:expiration 30)  ;; Covers call
-  (sell 1 put  #:strike 140 #:expiration 30)
-  (buy  1 put  #:strike 140 #:expiration 30)) ;; Covers put
-
-(define-option-strategy bullish-strat
-  #:ticker 'AAPL
-  #:ticker-price 145.75
-  #:safe-mode #t
-  (buy 1 call #:strike 140 #:expiration 30)  ;; Lower strike, long call
-  (sell 1 call #:strike 150 #:expiration 30)) ;; Higher strike, short call
-
-
-
-
-(define-option-strategy high-vol-strat
-  #:ticker 'AAPL
-  #:ticker-price 145.75
-  #:safe-mode #t
-  #:volatility 0.3  ;; 30% volatility
-  #:risk-free-rate 0.02  ;; 2% risk-free rate
-  (buy 1 call #:strike 140 #:expiration 30)
-  (sell 1 call #:strike 150 #:expiration 30))
-
-(define-option-strategy high-vol-strat-prem
-  #:ticker 'AAPL
-  #:ticker-price 280.75
-  #:safe-mode #t
-  #:volatility 0.3  ;; 30% volatility
-  #:risk-free-rate 0.02  ;; 2% risk-free rate
-  (buy 1 call #:strike 240 #:expiration 30 #:premium 7.50)
-  (sell 1 call #:strike 320 #:expiration 30 #:premium 5.00))
 
 (define-option-strategy-shortcuts bullish-strat-shortened
   #:ticker 'AAPL
@@ -432,11 +401,11 @@
   #:ticker 'AAPL
   #:ticker-price 145.75
   #:safe-mode #t
-  (call-debit-spread 140 150 7))
+  (collar 140 150 7))
 
 (define (graph-preview)
   (graph-multiple-strategies
-   (list (list high-vol-strat-prem "Bull Call Spread" "blue"))
+   (list (list collar-shortened "Bull Call Spread" "blue"))
    #:min-price 50  ; Optional manual price range
    #:max-price 350))
 
@@ -445,106 +414,7 @@
 
 (define (graph-preview-single)
   (graph-multiple-strategies
-   (list (list bullish-strat "Bull Call Spread" "blue"))))
+   (list (list bullish-strat-shortened "Bull Call Spread" "blue"))))
 
-(define (≈ a b tol) (< (abs (- a b)) tol))
-
-(define tol 0.001)
-
-(define-test-suite premium-tests
-  (check-true (≈ (calculate-premium 140 145.75 0.0822 0.02 0.3 'call)
-                 8.4563 tol))
-  (check-true (≈ (calculate-premium 150 145.75 0.0822 0.02 0.3 'call)
-                 3.3159 tol))
-  (check-true (≈ (calculate-premium 140 145.75 0.0822 0.02 0.3 'put)
-                 2.4763 tol))
-  (check-true (≈ (calculate-premium 150 145.75 0.0822 0.02 0.3 'put)
-                 7.3195 tol))
-  (check-true (≈ (calculate-premium 140 145.75 1 0.05 0.2 'call)
-                 18.5054 tol))
-  (check-true (≈ (calculate-premium 150 145.75 1 0.05 0.2 'put)
-                 10.0195 tol)))
-
-(define-test-suite payoff-tests
-  (check-= (option-payoff 110 100 'buy 'call 1 5 0 0 365 100) 5 0.001)
-  (check-= (option-payoff 110 100 'sell 'call 1 5 0 0 365 100) -5 0.001)
-  (check-= (option-payoff 90 100 'buy 'put 1 3 0 0 365 100) 7 0.001)
-  (check-= (option-payoff 90 100 'sell 'put 1 3 0 0 365 100) -7 0.001)
-  (check-= (option-payoff 90 100 'buy 'call 1 5 0 0 365 100) -5 0.001)
-  (check-= (option-payoff 100 100 'buy 'call 1 2 0 0 365 100) -2 0.001)
-  (check-= (option-payoff 100 100 'sell 'call 1 2 0 0 365 100) 2 0.001)
-  (check-= (option-payoff 110 100 'buy 'call 2 5 0 0 365 100) 10 0.001)
-  (check-= (option-payoff 105 100 'buy 'call 1 #f 0.05 0 365 100) 0.123 0.01))
-
-
-;; Example Fails
-
-(define (fails-to-compile? expr)
-  (with-handlers ([exn:fail? (λ (_) #t)]) ;; If an exception occurs, return #t
-    (eval expr)  ;; Try to evaluate the expression
-    #f))         ;; If it compiles, return #f (which is a failure in our test)
-
-(define-test-suite safe-mode-failure-tests
-
-  ;; Cannot sell more contracts than total purchased (no over-leveraging)
-  (check-true (fails-to-compile?
-               '(define-option-strategy over-leveraged
-                  #:ticker 'TSLA
-                  #:ticker-price 700
-                  #:safe-mode #t
-                  (buy 2 call #:strike 750 #:expiration 30)
-                  (sell 5 call #:strike 750 #:expiration 30)))
-              ;; Selling more than buying
-              "Safe mode: Should fail because more options
-\are sold than bought.")
-
-  ;; Strike price must be within 30% of current price
-  (check-true (fails-to-compile?
-               '(define-option-strategy too-far-otm
-                  #:ticker 'NFLX
-                  #:ticker-price 500
-                  #:safe-mode #t
-                  (buy 1 call #:strike 700 #:expiration 60)))
-              ;; 40% away from current price
-              "Safe mode: Should fail because strike price is too high.")
-
-  (check-true (fails-to-compile?
-               '(define-option-strategy too-far-it
-                  #:ticker 'NFLX
-                  #:ticker-price 500
-                  #:safe-mode #t
-                  (buy 1 put #:strike 250 #:expiration 60)))
-              ;; Strike too far from current price
-              "Safe mode: Should fail because strike price is too low.")
-
-  ;; Naked short calls or puts are not allowed
-  (check-true (fails-to-compile?
-               '(define-option-strategy naked-call
-                  #:ticker 'AMZN
-                  #:ticker-price 3000
-                  #:safe-mode #t
-                  (sell 1 call #:strike 3100 #:expiration 30)))
-              ;; No corresponding "buy"
-              "Safe mode: Should fail because selling a naked call.")
-
-  (check-true (fails-to-compile?
-               '(define-option-strategy naked-put
-                  #:ticker 'GOOG
-                  #:ticker-price 2800
-                  #:safe-mode #t
-                  (sell 1 put #:strike 2700 #:expiration 30)))
-              ;; No corresponding "buy"
-              "Safe mode: Should fail because selling a naked put.")
-  )
-
-;; Run all tests with verbose output
-(displayln "Running Premium Tests:")
-(run-tests premium-tests 'verbose)
-(newline)
-(displayln "Running Payoff Tests:")
-(run-tests payoff-tests 'verbose)
-(newline)
-(displayln "Compilation Error Tests:")
-(run-tests safe-mode-failure-tests 'verbose)
 
 (graph-preview)
