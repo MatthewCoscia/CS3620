@@ -10,8 +10,6 @@
          rackunit/text-ui
          math/special-functions)
 
-
-
 ;; Define the structures
 (struct strategy (name ticker ticker-price safe-mode volatility
                       risk-free-rate legs)
@@ -104,7 +102,76 @@
           (list legs.result ...)))]))
 
 
+#|
+Supported Strategies
+--------------------
+
+Strategy                | Required Arguments                                         | Legs Generated
+------------------------|------------------------------------------------------------|-----------------------------------------------------------
+call-debit-spread       | (buy-strike sell-strike expiration)                        | Buy call @ strike1, Sell call @ strike2
+put-debit-spread        | (buy-strike sell-strike expiration)                        | Buy put @ strike1, Sell put @ strike2
+butterfly-spread        | (low-strike mid-strike high-strike expiration)             | Buy call @ k1, Sell 2 calls @ k2, Buy call @ k3
+call-credit-spread      | (sell-strike buy-strike expiration)                        | Sell call @ strike1, Buy call @ strike2
+put-credit-spread       | (sell-strike1 buy-strike expiration)                       | Sell put @ strike1, Buy put @ strike2
+iron-condor             | (strike1-g1 strike2-g1 strike3-g2 strike4-g2 expiration)   | Buy put @ k1, Sell put @ k2, Sell call @ k3, Buy call @ k4
+iron-butterfly          | (low-strike mid-strike high-strike expiration)             | Buy put @ k1, Sell put @ k2, Sell call @ k2, Buy call @ k3
+long-straddle           | (strike expiration)                                        | Buy call + put @ same strike
+long-strangle           | (put-strike call-strike expiration)                        | Buy put @ put-strike, Buy call @ call-strike
+covered-call            | (strike expiration)                                        | Buy 100 shares, Sell 1 call
+collar                  | (long-put-strike short-call-strike expiration)             | Buy 100 shares, Buy 1 put, Sell 1 call
+diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration)    | Sell near call, Buy far call
+|#
+
+;; Validate strategy inputs before expansion
+(define-for-syntax (validate-strategy-args strategy args-list)
+  (define (strike<? a b)
+    (and (number? a) (number? b) (< a b)))
+
+  (define (strike>? a b)
+    (and (number? a) (number? b) (> a b)))
+
+  (case strategy
+    [(call-debit-spread)
+     (define-values (buy-strike sell-strike expiration) (apply values args-list))
+     (unless (strike<? buy-strike sell-strike)
+       (error "Invalid call-debit-spread: buy strike must be less than sell strike"))]
+
+    [(put-debit-spread)
+     (define-values (buy-strike sell-strike expiration) (apply values args-list))
+     (unless (strike>? buy-strike sell-strike)
+       (error "Invalid put-debit-spread: buy strike must be greater than sell strike"))]
+
+    [(call-credit-spread)
+     (define-values (sell-strike buy-strike expiration) (apply values args-list))
+     (unless (strike>? sell-strike buy-strike)
+       (error "Invalid call-credit-spread: sell strike must be greater than buy strike"))]
+
+    [(put-credit-spread)
+     (define-values (sell-strike buy-strike expiration) (apply values args-list))
+     (unless (strike<? sell-strike buy-strike)
+       (error "Invalid put-credit-spread: sell strike must be less than buy strike"))]
+
+    [(butterfly-spread iron-butterfly)
+     (define-values (k1 k2 k3 expiration) (apply values args-list))
+     (unless (and (not (= k1 k2)) (not (= k2 k3)) (not (= k1 k3)))
+       (error "Butterfly: strikes must be distinct"))
+     (unless (and (strike<? k1 k2) (strike<? k2 k3))
+       (error (format "Invalid ~a: strikes must be in ascending order (k1 < k2 < k3)" strategy)))]
+
+    [(iron-condor)
+     (define-values (k1 k2 k3 k4 expiration) (apply values args-list))
+     (unless (and (strike<? k1 k2) (strike<? k2 k3) (strike<? k3 k4))
+       (error "Invalid iron-condor: strikes must be in ascending order (k1 < k2 < k3 < k4)"))]
+
+    [(long-strangle)
+     (define-values (put-strike call-strike expiration) (apply values args-list))
+     (unless (strike<? put-strike call-strike)
+       (error "Invalid long-strangle: put strike must be less than call strike"))]
+
+    [else (void)]))
+
 (define-for-syntax (expand-strategy-legs strategy args-list)
+  (validate-strategy-args strategy args-list)
   (cond
     [(eq? strategy 'call-debit-spread)
      (define-values (strike1 strike2 expiration) (apply values args-list))
@@ -416,6 +483,3 @@
 
 
 (graph-preview)
-(provide define-option-strategy
-         calculate-premium
-         option-payoff)
