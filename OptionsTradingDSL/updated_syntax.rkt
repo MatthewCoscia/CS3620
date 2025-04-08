@@ -79,9 +79,6 @@
              #:with result #'(shares-leg 'action.act qty))))
 
 
-
-
-
 ;; Define the main macro
 (define-syntax (define-option-strategy stx)
   (syntax-parse stx
@@ -685,6 +682,19 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 (provide define-option-strategy
          calculate-premium
          option-payoff)
+
+(define-option-strategy naked-call
+  #:ticker 'AMZN
+  #:ticker-price 3000
+  #:safe-mode #t
+  (sell 1 call #:strike 3100 #:expiration 30))
+;; Error: "More calls sold than bought"
+
+(define-option-strategy too-far-otm
+  #:ticker 'NFLX
+  #:ticker-price 500
+  #:safe-mode #t
+  (buy 1 call #:strike 700 #:expiration 60))
 
 #;
 (graph-preview-single)
