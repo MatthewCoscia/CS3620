@@ -12,7 +12,7 @@
 
 ;; Define the structures
 (struct strategy (name ticker ticker-price safe-mode volatility
-                      risk-free-rate legs enable3d?)
+                      risk-free-rate legs)
   #:transparent)
 (struct option-leg (action qty type strike expiration premium)
   #:transparent)
@@ -89,7 +89,6 @@
                    #:defaults ([vol #'0.2]))    ;; Default Volatility: 20%
         (~optional (~seq #:risk-free-rate rfr:expr)
                    #:defaults ([rfr #'0.05]))   ;; Default Risk-Free Rate: 5%'
-        (~optional (~seq #:3d e3d:expr) #:defaults ([e3d #'#f]))
         legs:leg-pattern ...)
      
      #`(define strategy-name
@@ -100,8 +99,7 @@
           safe                ;; Safe mode?
           vol                 ;; Volatility
           rfr                 ;; Risk-free rate
-          (list legs.result ...)
-          e3d))]))
+          (list legs.result ...)))]))
 
 (define-for-syntax (expand-strategy-legs strategy args-list)
   (cond
@@ -204,7 +202,6 @@
         #:safe-mode safe:expr
         (~optional [~seq #:volatility vol:expr] #:defaults ([vol #'0.2]))
         (~optional [~seq #:risk-free-rate rfr:expr] #:defaults ([rfr #'0.05]))
-        (~optional (~seq #:3d e3d:expr) #:defaults ([e3d #'#f]))
         (strategy-type:id args:expr ...))
 
      (define strategy (syntax-e #'strategy-type))
@@ -218,7 +215,6 @@
          #:safe-mode      safe
          #:volatility     vol
          #:risk-free-rate rfr
-         #:3d             e3d
          #,@legs)]))
 
 (define (share-payoff stock-price action quantity ticker-price)
@@ -273,17 +269,6 @@
     (if (eq? action 'buy)
         (- intrinsic-value initial-cost)  ;; Buying: Pay premium upfront
         (- initial-cost intrinsic-value))))  ;; Limit gains beyond strike
-
-
-
-(define (graph-decision strat
-                        #:label [lbl (symbol->string (strategy-name strat))]
-                        #:color [clr "blue"])
-  (if (strategy-enable3d? strat)
-      (graph-multiple-strategies-3d (list (list strat lbl clr)))
-      (graph-multiple-strategies    (list (list strat lbl clr)))))
-
-
 
 (define (find-breakeven strategy min-price max-price step)
   (let loop ([price min-price] [breakevens '()])
@@ -347,6 +332,13 @@
             price
             (total-strategy-payoff strat price))))
 
+(define (strategy-max-expiration strat)
+  (apply max
+         (for/list ([leg (strategy-legs strat)]
+                    #:when (option-leg? leg))
+           (option-leg-expiration leg))))
+
+
 
 (define (option-value-at-time stock-price
                               strike
@@ -357,20 +349,19 @@
                               risk-free-rate
                               volatility
                               days-remaining
+                              original-expiration-days
                               ticker-price)
-  ;; T: fraction of year left
   (let* ([T (/ days-remaining 365.0)]
-         ;; If user did not specify premium (#f), we auto-calc using Black-Scholes at current stock-price
+         [original-T (/ original-expiration-days 365.0)]
          [actual-premium
           (if (equal? premium #f)
               (calculate-premium strike
                                  ticker-price
-                                 T
+                                 original-T
                                  risk-free-rate
                                  volatility
                                  type)
               premium)]
-         ;; The option's “fair value” at the current stock-price
          [bs-value
           (calculate-premium strike
                              stock-price
@@ -381,7 +372,7 @@
          [net-value (* quantity bs-value)]
          [cost      (* quantity actual-premium)])
     (if (eq? action 'buy)
-        (- net-value cost)  ;; Buying the option means net gain is BS-value - cost
+        (- net-value cost)
         (- cost net-value)))) ;; Selling the option means net gain is cost - BS-value
 
 (define (total-strategy-value-at-time strat stock-price days-remaining)
@@ -403,6 +394,7 @@
                                        risk-free-rate
                                        volatility
                                        days-remaining
+                                       (option-leg-expiration leg)  ; << new arg!
                                        ticker-price)]
                 [(shares-leg? leg)
                  ;; Shares payoff is basically stock-price - cost basis:
@@ -437,6 +429,36 @@
   (list (function payoff #:label label #:color color)
         (points (map (λ (x) (vector x (payoff x))) breakevens)
                 #:sym 'circle #:size 8 #:color color #:label #f)))
+
+
+(define (graph-decision strat
+                        #:label [lbl (symbol->string (strategy-name strat))]
+                        #:color [clr "blue"]
+                        #:3d [force-3d? #f]
+                        #:min-price [min-price #f]
+                        #:max-price [max-price #f]
+                        #:min-days [min-days 1]
+                        #:max-days [max-days #f]
+                        #:price-step [price-step 5]
+                        #:day-step [day-step 2])
+  (let* ([use-3d? force-3d?]
+         [ticker-price (strategy-ticker-price strat)]
+         [min-p (or min-price (- ticker-price 50))]
+         [max-p (or max-price (+ ticker-price 50))]
+         [max-d (or max-days (strategy-max-expiration strat))])
+    (if use-3d?
+        (graph-multiple-strategies-3d
+         (list (list strat lbl clr))
+         #:min-price min-p
+         #:max-price max-p
+         #:min-days min-days
+         #:max-days max-d
+         #:price-step price-step
+         #:day-step day-step)
+        (graph-multiple-strategies
+         (list (list strat lbl clr))
+         #:min-price min-price
+         #:max-price max-price))))
 
 ;; Main function
 (define (graph-multiple-strategies strategies
@@ -520,25 +542,42 @@
   #:ticker-price 250
   #:safe-mode #f
   ;; Turn on 3D for fun
-  #:3d #t
   (buy 1 call #:strike 240 #:expiration 30)
   (sell 1 call #:strike 260 #:expiration 30)
   (buy 1 put  #:strike 230 #:expiration 30))
 
 
-(define-option-strategy bigtime-3d
+(define-option-strategy big-curve
   #:ticker 'FAKE
   #:ticker-price 100
   #:safe-mode #f
-  #:volatility 1.2
+  #:volatility 5.0          ; extremely high IV
   #:risk-free-rate 0.0
-  #:3d #t
   (buy 1 call #:strike 100 #:expiration 60))
 
 
-(graph-decision bigtime-3d 
+
+(define (test20)
+(graph-decision big-curve
+                #:3d #f
                 #:label "High Vol ATM Call"
-                #:color "purple")
+                #:color "purple"))
+
+(define (test21)
+(graph-decision big-curve
+                #:3d #t
+                #:label "High Vol ATM Call"
+                #:color "purple"))
+
+(define (theta-test strat S)
+  (for ([days '(60 45 30 15 5 1)])
+    (define val (total-strategy-value-at-time strat S days))
+    (printf "[S=~a, T=~a days] → Strategy Value: ~a\n" S days val)))
+
+
+
+
+
 
 
 
