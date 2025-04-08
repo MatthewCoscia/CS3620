@@ -348,10 +348,10 @@
                               premium
                               risk-free-rate
                               volatility
-                              days-remaining
+                              days-since-purchase
                               original-expiration-days
                               ticker-price)
-  (let* ([T (/ days-remaining 365.0)]
+  (let* ([T (/ (- original-expiration-days days-since-purchase) 365.0)] ; flip it!
          [original-T (/ original-expiration-days 365.0)]
          [actual-premium
           (if (equal? premium #f)
@@ -412,14 +412,18 @@
 ;; Helper 1: Calculate plot boundaries
 (define (get-plot-bounds strategies min-price max-price)
   (if (or min-price max-price)
-      (values (or min-price
-                  (- (strategy-ticker-price (caar strategies)) 50))
-              (or max-price
-                  (+ (strategy-ticker-price (caar strategies)) 50)))
-      (let ([ticker-prices (map (λ (s) (strategy-ticker-price (car s)))
-                                 strategies)])
-        (values (- (apply min ticker-prices) 50)
-                (+ (apply max ticker-prices) 50)))))
+      (let* ([base-price (strategy-ticker-price (caar strategies))]
+             [offset (* base-price 0.5)])
+        (values (or min-price (- base-price offset))
+                (or max-price (+ base-price offset))))
+      (let* ([ticker-prices (map (λ (s) (strategy-ticker-price (car s)))
+                                 strategies)]
+             [min-price-val (apply min ticker-prices)]
+             [max-price-val (apply max ticker-prices)]
+             [low-offset (* min-price-val 0.5)]
+             [high-offset (* max-price-val 0.5)])
+        (values (- min-price-val low-offset)
+                (+ max-price-val high-offset)))))
 
 
 ;; Helper 2: Create plot elements for a single strategy
@@ -431,34 +435,39 @@
                 #:sym 'circle #:size 8 #:color color #:label #f)))
 
 
-(define (graph-decision strat
-                        #:label [lbl (symbol->string (strategy-name strat))]
-                        #:color [clr "blue"]
-                        #:3d [force-3d? #f]
+(define (graph-decision strategy-triplets
+                        #:3d [use-3d? #f]
                         #:min-price [min-price #f]
                         #:max-price [max-price #f]
                         #:min-days [min-days 1]
                         #:max-days [max-days #f]
                         #:price-step [price-step 5]
                         #:day-step [day-step 2])
-  (let* ([use-3d? force-3d?]
-         [ticker-price (strategy-ticker-price strat)]
-         [min-p (or min-price (- ticker-price 50))]
-         [max-p (or max-price (+ ticker-price 50))]
-         [max-d (or max-days (strategy-max-expiration strat))])
-    (if use-3d?
-        (graph-multiple-strategies-3d
-         (list (list strat lbl clr))
-         #:min-price min-p
-         #:max-price max-p
-         #:min-days min-days
-         #:max-days max-d
-         #:price-step price-step
-         #:day-step day-step)
-        (graph-multiple-strategies
-         (list (list strat lbl clr))
-         #:min-price min-price
-         #:max-price max-price))))
+  (define (get-expiration-max strat)
+    (apply max (map option-leg-expiration (filter option-leg? (strategy-legs strat)))))
+
+  (define computed-max-days
+    (or max-days
+        (apply max
+               (map (λ (triplet)
+                      (define strat (first triplet))
+                      (get-expiration-max strat))
+                    strategy-triplets))))
+
+  (if use-3d?
+      (graph-multiple-strategies-3d
+       strategy-triplets
+       #:min-price min-price
+       #:max-price max-price
+       #:min-days min-days
+       #:max-days computed-max-days
+       #:price-step price-step
+       #:day-step day-step)
+      (graph-multiple-strategies
+       strategy-triplets
+       #:min-price min-price
+       #:max-price max-price)))
+
 
 ;; Main function
 (define (graph-multiple-strategies strategies
@@ -483,32 +492,35 @@
             #:legend-anchor 'outside-right))))
 
 (define (graph-multiple-strategies-3d strategies
-                                      #:min-price [min-price 50]
-                                      #:max-price [max-price 350]
+                                      #:min-price [min-price #f]
+                                      #:max-price [max-price #f]
                                       #:min-days [min-days 1]
                                       #:max-days [max-days 60]
                                       #:price-step [price-step 5]
                                       #:day-step [day-step 2])
-  (parameterize ([plot-new-window? #t])
-    (plot3d
-     (append
-      (for/list ([strat-info strategies])
-        (match-define (list strategy label color) strat-info)
-        (surface3d
-         (λ (x y)
-           (total-strategy-value-at-time strategy x y))
-         min-price max-price
-         min-days max-days)))
-     #:title "Option Strategy Value Over Time (3D)"
-     #:x-label "Stock Price"
-     #:y-label "Days to Expiration"
-     #:z-label "Profit/Loss"
-     #:x-min min-price
-     #:x-max max-price
-     #:y-min min-days
-     #:y-max max-days
-     #:width 1400
-     #:height 600)))
+  (let-values ([(x-min x-max)
+                (get-plot-bounds strategies min-price max-price)])
+    (parameterize ([plot-new-window? #t])
+      (plot3d
+       (append
+        (for/list ([strat-info strategies])
+          (match-define (list strategy label color) strat-info)
+          (surface3d
+           (λ (x y)
+             (total-strategy-value-at-time strategy x y))
+           x-min x-max
+           min-days max-days)))
+       #:title "Option Strategy Value Over Time (3D)"
+       #:x-label "Stock Price"
+       #:y-label "Days Since Purchase"
+       #:z-label "Profit/Loss"
+       #:x-min x-min
+       #:x-max x-max
+       #:y-min min-days
+       #:y-max max-days
+       #:width 1400
+       #:height 600))))
+
 
 
 
@@ -569,10 +581,50 @@
                 #:label "High Vol ATM Call"
                 #:color "purple"))
 
-(define (theta-test strat S)
-  (for ([days '(60 45 30 15 5 1)])
-    (define val (total-strategy-value-at-time strat S days))
-    (printf "[S=~a, T=~a days] → Strategy Value: ~a\n" S days val)))
+(define-option-strategy high-vol-straddle
+  #:ticker 'TSLA
+  #:ticker-price 250
+  #:safe-mode #f
+  #:volatility 1.2
+  #:risk-free-rate 0.01
+  (buy 1 call #:strike 250 #:expiration 30)
+  (buy 1 put  #:strike 250 #:expiration 30))
+
+(define-option-strategy high-vol-strangle
+  #:ticker 'TSLA
+  #:ticker-price 250
+  #:safe-mode #f
+  #:volatility 1.2
+  #:risk-free-rate 0.01
+  (buy 1 call #:strike 270 #:expiration 30)
+  (buy 1 put  #:strike 230 #:expiration 30))
+
+(define (high-vol-comparison-2d)
+  (graph-multiple-strategies
+   (list (list high-vol-straddle "Straddle" "green")
+         (list high-vol-strangle "Strangle" "orange"))))
+
+(define (high-vol-comparison-3d)
+  (graph-multiple-strategies-3d
+   (list (list high-vol-straddle "Straddle" "green")
+         (list high-vol-strangle "Strangle" "orange"))))
+
+(graph-decision
+ (list (list high-vol-straddle "Straddle" "green")
+       (list high-vol-strangle "Strangle" "orange"))
+ #:3d #t
+ #:min-price 200
+ #:max-price 300)
+
+(graph-decision
+ (list (list high-vol-straddle "Straddle" "green")
+       (list high-vol-strangle "Strangle" "orange"))
+ #:3d #f)
+
+
+
+
+
 
 
 
