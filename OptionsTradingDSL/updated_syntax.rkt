@@ -414,21 +414,89 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
             price
             (total-strategy-payoff strat price))))
 
+(define (option-value-at-time stock-price
+                              strike
+                              action
+                              type
+                              quantity
+                              premium
+                              risk-free-rate
+                              volatility
+                              days-since-purchase
+                              original-expiration-days
+                              ticker-price)
+  (let* ([T (/ (- original-expiration-days days-since-purchase) 365.0)] ; flip it!
+         [original-T (/ original-expiration-days 365.0)]
+         [actual-premium
+          (if (equal? premium #f)
+              (calculate-premium strike
+                                 ticker-price
+                                 original-T
+                                 risk-free-rate
+                                 volatility
+                                 type)
+              premium)]
+         [bs-value
+          (calculate-premium strike
+                             stock-price
+                             T
+                             risk-free-rate
+                             volatility
+                             type)]
+         [net-value (* quantity bs-value)]
+         [cost      (* quantity actual-premium)])
+    (if (eq? action 'buy)
+        (- net-value cost)
+        (- cost net-value))))
 
+(define (total-strategy-value-at-time strat stock-price days-remaining)
+  (let* ([legs            (strategy-legs strat)]
+         [ticker-price    (strategy-ticker-price strat)]
+         [volatility      (strategy-volatility strat)]
+         [risk-free-rate  (strategy-risk-free-rate strat)])
+    (apply +
+           (map
+            (λ (leg)
+              (cond
+                [(option-leg? leg)
+                 (option-value-at-time stock-price
+                                       (option-leg-strike leg)
+                                       (option-leg-action leg)
+                                       (option-leg-type leg)
+                                       (option-leg-qty leg)
+                                       (option-leg-premium leg)
+                                       risk-free-rate
+                                       volatility
+                                       days-remaining
+                                       (option-leg-expiration leg)  ; << new arg!
+                                       ticker-price)]
+                [(shares-leg? leg)
+                 ;; Shares payoff is basically stock-price - cost basis:
+                 (share-payoff stock-price
+                               (shares-leg-action leg)
+                               (shares-leg-qty leg)
+                               ticker-price)]
+                [else
+                 (error "Unknown leg type" leg)]))
+            legs))))
 
 
 
 ;; Calculate plot boundaries
 (define (get-plot-bounds strategies min-price max-price)
   (if (or min-price max-price)
-      (values (or min-price
-                  (- (strategy-ticker-price (caar strategies)) 50))
-              (or max-price
-                  (+ (strategy-ticker-price (caar strategies)) 50)))
-      (let ([ticker-prices (map (λ (s) (strategy-ticker-price (car s)))
-                                 strategies)])
-        (values (- (apply min ticker-prices) 50)
-                (+ (apply max ticker-prices) 50)))))
+      (let* ([base-price (strategy-ticker-price (caar strategies))]
+             [offset (* base-price 0.5)])
+        (values (or min-price (- base-price offset))
+                (or max-price (+ base-price offset))))
+      (let* ([ticker-prices (map (λ (s) (strategy-ticker-price (car s)))
+                                 strategies)]
+             [min-price-val (apply min ticker-prices)]
+             [max-price-val (apply max ticker-prices)]
+             [low-offset (* min-price-val 0.5)]
+             [high-offset (* max-price-val 0.5)])
+        (values (- min-price-val low-offset)
+                (+ max-price-val high-offset)))))
 
 
 ;;  Create plot elements for a single strategy
@@ -439,8 +507,39 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
         (points (map (λ (x) (vector x (payoff x))) breakevens)
                 #:sym 'circle #:size 8 #:color color #:label #f)))
 
+(define (graph-multiple-strategies-3d strategies
+                                      #:min-price [min-price #f]
+                                      #:max-price [max-price #f]
+                                      #:min-days [min-days 1]
+                                      #:max-days [max-days 60]
+                                      #:price-step [price-step 5]
+                                      #:day-step [day-step 2])
+  (let-values ([(x-min x-max)
+                (get-plot-bounds strategies min-price max-price)])
+    (parameterize ([plot-new-window? #t])
+      (plot3d
+       (append
+        (for/list ([strat-info strategies])
+          (match-define (list strategy label color) strat-info)
+          (surface3d
+           (λ (x y)
+             (total-strategy-value-at-time strategy x y))
+           x-min x-max
+           min-days max-days
+           #:color color))) ;; <- use the color!
+       #:title "Option Strategy Value Over Time (3D)"
+       #:x-label "Stock Price"
+       #:y-label "Days Since Purchase"
+       #:z-label "Profit/Loss"
+       #:x-min x-min
+       #:x-max x-max
+       #:y-min min-days
+       #:y-max max-days
+       #:width 1400
+       #:height 600))))
+
 ;; Main function
-(define (graph-multiple-strategies strategies
+(define (graph-multiple-strategies-2d strategies
                                    #:min-price [min-price #f]
                                    #:max-price [max-price #f])
   (let-values ([(x-min x-max)
@@ -461,13 +560,46 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
             #:height 600
             #:legend-anchor 'outside-right))))
 
+(define (graph-decision strategy-triplets
+                        #:3d [use-3d? #f]
+                        #:min-price [min-price #f]
+                        #:max-price [max-price #f]
+                        #:min-days [min-days 1]
+                        #:max-days [max-days #f]
+                        #:price-step [price-step 5]
+                        #:day-step [day-step 2])
+  (define (get-expiration-max strat)
+    (apply max (map option-leg-expiration (filter option-leg? (strategy-legs strat)))))
+
+  (define computed-max-days
+    (or max-days
+        (apply max
+               (map (λ (triplet)
+                      (define strat (first triplet))
+                      (get-expiration-max strat))
+                    strategy-triplets))))
+
+  (if use-3d?
+      (graph-multiple-strategies-3d
+       strategy-triplets
+       #:min-price min-price
+       #:max-price max-price
+       #:min-days min-days
+       #:max-days computed-max-days
+       #:price-step price-step
+       #:day-step day-step)
+      (graph-multiple-strategies-2d
+       strategy-triplets
+       #:min-price min-price
+       #:max-price max-price)))
+
 
 
 (define-option-strategy-shortcuts bullish-strat-shortened
   #:ticker 'AAPL
   #:ticker-price 145.75
   #:safe-mode #t
-  #:quantity 1
+  #:quantity 2
   (call-debit-spread 140 150 7))
 
 (define-option-strategy-shortcuts collar-shortened
@@ -477,17 +609,43 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
   (collar 140 150 7))
 
 (define (graph-preview)
-  (graph-multiple-strategies
+  (graph-decision
    (list (list collar-shortened "Bull Call Spread" "blue"))
-   #:min-price 50  
+   #:3d #f
+   #:min-price 50
    #:max-price 350))
 
-
-
-
 (define (graph-preview-single)
-  (graph-multiple-strategies
-   (list (list bullish-strat-shortened "Bull Call Spread" "blue"))))
+  (graph-decision
+   (list (list bullish-strat-shortened "Bull Call Spread" "blue"))
+   #:3d #f))
+
+(define-option-strategy high-vol-straddle
+  #:ticker 'TSLA
+  #:ticker-price 250
+  #:safe-mode #f
+  #:volatility 1.2
+  #:risk-free-rate 0.01
+  (buy 1 call #:strike 250 #:expiration 30)
+  (buy 1 put  #:strike 250 #:expiration 30))
+
+(define-option-strategy high-vol-strangle
+  #:ticker 'TSLA
+  #:ticker-price 250
+  #:safe-mode #f
+  #:volatility 1.2
+  #:risk-free-rate 0.01
+  (buy 1 call #:strike 270 #:expiration 30)
+  (buy 1 put  #:strike 230 #:expiration 30))
+
+(define (3dtest)
+  (graph-decision
+   (list (list high-vol-straddle "Straddle" "green")
+         (list high-vol-strangle "Strangle" "orange"))
+   #:3d #t
+   #:min-price 200
+   #:max-price 300))
+
 
 
 (graph-preview-single)
