@@ -78,6 +78,10 @@
              #:when (equal? (syntax->datum #'shares-kw) 'shares)
              #:with result #'(shares-leg 'action.act qty))))
 
+
+
+
+
 ;; Define the main macro
 (define-syntax (define-option-strategy stx)
   (syntax-parse stx
@@ -678,7 +682,9 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
    #:3d #f))
 
 
-
+(provide define-option-strategy
+         calculate-premium
+         option-payoff)
 
 #;
 (graph-preview-single)

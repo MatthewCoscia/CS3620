@@ -78,15 +78,15 @@
                  10.0195 tol)))
 
 (define-test-suite payoff-tests
-  (check-= (option-payoff 110 100 'buy 'call 1 5 0 0 365 100) 5 0.001)
-  (check-= (option-payoff 110 100 'sell 'call 1 5 0 0 365 100) -5 0.001)
-  (check-= (option-payoff 90 100 'buy 'put 1 3 0 0 365 100) 7 0.001)
-  (check-= (option-payoff 90 100 'sell 'put 1 3 0 0 365 100) -7 0.001)
-  (check-= (option-payoff 90 100 'buy 'call 1 5 0 0 365 100) -5 0.001)
-  (check-= (option-payoff 100 100 'buy 'call 1 2 0 0 365 100) -2 0.001)
-  (check-= (option-payoff 100 100 'sell 'call 1 2 0 0 365 100) 2 0.001)
-  (check-= (option-payoff 110 100 'buy 'call 2 5 0 0 365 100) 10 0.001)
-  (check-= (option-payoff 105 100 'buy 'call 1 #f 0.05 0 365 100) 0.123 0.01))
+  (check-= (option-payoff 110 100 'buy 'call 1 5 0 0 365 100) 500 0.001)
+  (check-= (option-payoff 110 100 'sell 'call 1 5 0 0 365 100) -500 0.001)
+  (check-= (option-payoff 90 100 'buy 'put 1 3 0 0 365 100) 700 0.001)
+  (check-= (option-payoff 90 100 'sell 'put 1 3 0 0 365 100) -700 0.001)
+  (check-= (option-payoff 90 100 'buy 'call 1 5 0 0 365 100) -500 0.001)
+  (check-= (option-payoff 100 100 'buy 'call 1 2 0 0 365 100) -200 0.001)
+  (check-= (option-payoff 100 100 'sell 'call 1 2 0 0 365 100) 200 0.001)
+  (check-= (option-payoff 110 100 'buy 'call 2 5 0 0 365 100) 1000 0.001)
+  (check-= (option-payoff 105 100 'buy 'call 1 #f 0.05 0 365 100) 12.3 0.01))
 
 
 ;; Example Fails
