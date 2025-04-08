@@ -509,7 +509,8 @@
            (λ (x y)
              (total-strategy-value-at-time strategy x y))
            x-min x-max
-           min-days max-days)))
+           min-days max-days
+           #:color color))) ;; <- use the color!
        #:title "Option Strategy Value Over Time (3D)"
        #:x-label "Stock Price"
        #:y-label "Days Since Purchase"
@@ -520,6 +521,7 @@
        #:y-max max-days
        #:width 1400
        #:height 600))))
+
 
 
 
@@ -598,16 +600,6 @@
   #:risk-free-rate 0.01
   (buy 1 call #:strike 270 #:expiration 30)
   (buy 1 put  #:strike 230 #:expiration 30))
-
-(define (high-vol-comparison-2d)
-  (graph-multiple-strategies
-   (list (list high-vol-straddle "Straddle" "green")
-         (list high-vol-strangle "Strangle" "orange"))))
-
-(define (high-vol-comparison-3d)
-  (graph-multiple-strategies-3d
-   (list (list high-vol-straddle "Straddle" "green")
-         (list high-vol-strangle "Strangle" "orange"))))
 
 (graph-decision
  (list (list high-vol-straddle "Straddle" "green")
