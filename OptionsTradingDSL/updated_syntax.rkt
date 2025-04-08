@@ -340,8 +340,8 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
          [raw-payoff (cond
                        [(eq? type 'call) (max 0 (- stock-price strike))]
                        [(eq? type 'put)  (max 0 (- strike stock-price))])]
-         [intrinsic-value (* quantity raw-payoff)]  ;; Pure option value
-         [initial-cost (* quantity actual-premium)])  ;; Cost upfront
+         [intrinsic-value (* quantity 100 raw-payoff)] ;; pure option value
+         [initial-cost     (* quantity 100 actual-premium)])  ;; Cost upfront
     
     ;; Adjust for long and short call behavior
     (if (eq? action 'buy)
@@ -425,26 +425,17 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
                               days-since-purchase
                               original-expiration-days
                               ticker-price)
-  (let* ([T (/ (- original-expiration-days days-since-purchase) 365.0)] ; flip it!
+  (let* ([T (/ (- original-expiration-days days-since-purchase) 365.0)]
          [original-T (/ original-expiration-days 365.0)]
          [actual-premium
           (if (equal? premium #f)
-              (calculate-premium strike
-                                 ticker-price
-                                 original-T
-                                 risk-free-rate
-                                 volatility
-                                 type)
+              (calculate-premium strike ticker-price original-T
+                                 risk-free-rate volatility type)
               premium)]
-         [bs-value
-          (calculate-premium strike
-                             stock-price
-                             T
-                             risk-free-rate
-                             volatility
-                             type)]
-         [net-value (* quantity bs-value)]
-         [cost      (* quantity actual-premium)])
+         [bs-value (calculate-premium strike stock-price T
+                                      risk-free-rate volatility type)]
+         [net-value (* quantity 100 bs-value)]
+         [cost      (* quantity 100 actual-premium)])
     (if (eq? action 'buy)
         (- net-value cost)
         (- cost net-value))))
@@ -468,7 +459,7 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
                                        risk-free-rate
                                        volatility
                                        days-remaining
-                                       (option-leg-expiration leg)  ; << new arg!
+                                       (option-leg-expiration leg)
                                        ticker-price)]
                 [(shares-leg? leg)
                  ;; Shares payoff is basically stock-price - cost basis:
@@ -479,8 +470,6 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
                 [else
                  (error "Unknown leg type" leg)]))
             legs))))
-
-
 
 ;; Calculate plot boundaries
 (define (get-plot-bounds strategies min-price max-price)
@@ -618,33 +607,33 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 (define (graph-preview-single)
   (graph-decision
    (list (list bullish-strat-shortened "Bull Call Spread" "blue"))
-   #:3d #f))
+   #:3d #t))
 
-(define-option-strategy high-vol-straddle
-  #:ticker 'TSLA
-  #:ticker-price 250
+(define-option-strategy long-term-call-spread
+  #:ticker 'AAPL
+  #:ticker-price 150
   #:safe-mode #f
-  #:volatility 1.2
-  #:risk-free-rate 0.01
-  (buy 1 call #:strike 250 #:expiration 30)
-  (buy 1 put  #:strike 250 #:expiration 30))
+  #:volatility 0.3
+  #:risk-free-rate 0.02
+  (buy 1 call #:strike 145 #:expiration 1000)
+  (sell 1 call #:strike 155 #:expiration 1000))
 
-(define-option-strategy high-vol-strangle
-  #:ticker 'TSLA
-  #:ticker-price 250
+(define-option-strategy long-term-put-spread
+  #:ticker 'AAPL
+  #:ticker-price 150
   #:safe-mode #f
-  #:volatility 1.2
-  #:risk-free-rate 0.01
-  (buy 1 call #:strike 270 #:expiration 30)
-  (buy 1 put  #:strike 230 #:expiration 30))
+  #:volatility 0.3
+  #:risk-free-rate 0.02
+  (buy 1 put #:strike 155 #:expiration 1000)
+  (sell 1 put #:strike 145 #:expiration 1000))
+
 
 (define (3dtest)
   (graph-decision
-   (list (list high-vol-straddle "Straddle" "green")
-         (list high-vol-strangle "Strangle" "orange"))
-   #:3d #t
-   #:min-price 200
-   #:max-price 300))
+   (list (list long-term-call-spread "Call Spread" "blue")
+         (list long-term-put-spread "Put Spread" "red"))
+   #:3d #t))
+
 
 
 
