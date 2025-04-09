@@ -72,16 +72,23 @@
   (check-true (≈ (calculate-premium 150 145.75 1 0.05 0.2 'put)
                  10.0195 tol)))
 
-(define-test-suite payoff-tests
-  (check-= (option-payoff 110 100 'buy 'call 1 5 0 0 365 100) 500 0.001)
-  (check-= (option-payoff 110 100 'sell 'call 1 5 0 0 365 100) -500 0.001)
-  (check-= (option-payoff 90 100 'buy 'put 1 3 0 0 365 100) 700 0.001)
-  (check-= (option-payoff 90 100 'sell 'put 1 3 0 0 365 100) -700 0.001)
-  (check-= (option-payoff 90 100 'buy 'call 1 5 0 0 365 100) -500 0.001)
-  (check-= (option-payoff 100 100 'buy 'call 1 2 0 0 365 100) -200 0.001)
-  (check-= (option-payoff 100 100 'sell 'call 1 2 0 0 365 100) 200 0.001)
-  (check-= (option-payoff 110 100 'buy 'call 2 5 0 0 365 100) 1000 0.001)
-  (check-= (option-payoff 105 100 'buy 'call 1 #f 0.05 0 365 100) 12.3 0.01))
+(define-test-suite option-value-tests
+  ;; All these are evaluated at expiration (days-since = total)
+  (check-= (option-value-at-time 110 100 'buy 'call 1 5 0 0 365 365 100) 500 0.001)
+  (check-= (option-value-at-time 110 100 'sell 'call 1 5 0 0 365 365 100) -500 0.001)
+  (check-= (option-value-at-time 90 100 'buy 'put 1 3 0 0 365 365 100) 700 0.001)
+  (check-= (option-value-at-time 90 100 'sell 'put 1 3 0 0 365 365 100) -700 0.001)
+  (check-= (option-value-at-time 90 100 'buy 'call 1 5 0 0 365 365 100) -500 0.001)
+  (check-= (option-value-at-time 100 100 'buy 'call 1 2 0 0 365 365 100) -200 0.001)
+  (check-= (option-value-at-time 100 100 'sell 'call 1 2 0 0 365 365 100) 200 0.001)
+  (check-= (option-value-at-time 110 100 'buy 'call 2 5 0 0 365 365 100) 1000 0.001)
+
+  ;; This one tests Black-Scholes value at half-life (not expiration)
+  ;; strike 100, spot 105, action = buy call, quantity = 1, premium = #f,
+  ;; rfr = 0.05, volatility = 0, days-since = 0, expiration = 365
+  (check-= (option-value-at-time 105 100 'buy 'call 1 #f 0.05 0.3 0 365 100)
+         327.38 0.5))
+
 
 
 ;; Example Fails
@@ -96,6 +103,6 @@
 (displayln "Running Premium Tests:")
 (run-tests premium-tests 'verbose)
 (newline)
-(displayln "Running Payoff Tests:")
-(run-tests payoff-tests 'verbose)
+(displayln "Running Option Value Tests:")
+(run-tests option-value-tests 'verbose)
 (newline)
