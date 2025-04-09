@@ -98,12 +98,13 @@
    0.01)
 
   ;; Test long put: In-the-money
-  (check-=
+  (check-= 
    (total-strategy-value-at-time
     (strategy 'test2 'AAPL 100 #f 0.3 0.05
               (list (option-leg 'buy 1 'put 110 30 #f)))
     100 0)
-   (option-value-at-time 100 110 'buy 'put 1 #f 0.05 0.3 0 30 100))
+   (option-value-at-time 100 110 'buy 'put 1 #f 0.05 0.3 0 30 100)
+   0.01)
 
   ;; Test covered call (long shares + short call)
   (check-=
@@ -115,7 +116,8 @@
     115
     0)
    (+ (share-payoff 115 'buy 100 100)
-      (option-value-at-time 115 110 'sell 'call 1 #f 0.05 0.2 0 10 100)))
+      (option-value-at-time 115 110 'sell 'call 1 #f 0.05 0.2 0 10 100))
+   0.01)
 
   ;; Test short put (out-of-the-money)
   (check-=
@@ -124,7 +126,8 @@
               (list (option-leg 'sell 1 'put 90 30 #f)))
     100
     0)
-   (option-value-at-time 100 90 'sell 'put 1 #f 0.05 0.25 0 30 100))
+   (option-value-at-time 100 90 'sell 'put 1 #f 0.05 0.25 0 30 100)
+   0.01)
 
   ;; Test far-from-expiration value
   (check-=
@@ -133,8 +136,9 @@
               (list (option-leg 'buy 1 'call 120 365 #f)))
     105
     0) ;; day 0
-   (option-value-at-time 105 120 'buy 'call 1 #f 0.05 0.4 0 365 100))
-)
+   (option-value-at-time 105 120 'buy 'call 1 #f 0.05 0.4 0 365 100)
+   0.01))
+
 
 
 
