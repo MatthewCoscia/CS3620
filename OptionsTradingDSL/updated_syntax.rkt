@@ -452,16 +452,18 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
                               original-expiration-days
                               ticker-price)
   (let* ([T (/ (- original-expiration-days days-since-purchase) 365.0)]
-         [original-T (/ original-expiration-days 365.0)]
-         [actual-premium
+         [cost-basis-per-contract
           (if (equal? premium #f)
-              (calculate-premium strike ticker-price original-T
+              ;; If premium not manually supplied, calculate it using ticker price
+              (calculate-premium strike ticker-price T
                                  risk-free-rate volatility type)
+              ;; If premium *was* manually supplied, it's per contract already,
+              ;; so divide by 100 to keep it in contract terms
               premium)]
          [bs-value (calculate-premium strike stock-price T
                                       risk-free-rate volatility type)]
          [net-value (* quantity 100 bs-value)]
-         [cost      (* quantity 100 actual-premium)])
+         [cost      (* quantity 100 cost-basis-per-contract)])
     (if (eq? action 'buy)
         (- net-value cost)
         (- cost net-value))))
@@ -685,19 +687,19 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
   #:ticker-price 150
   #:volatility 0.3
   #:risk-free-rate 0.02
-  (buy 1 call #:strike 145 #:expiration 1000))
+  (buy 1 call #:strike 145 #:expiration 10))
 
 (define (3dtest2)
   (graph-decision
    (list (list call-alone "Long Call" "purple"))
    #:3d #f
-   #:days-since-purchase 1000))
+   #:days-since-purchase 0))
 
 (define-option-strategy covered-call-test
   #:ticker 'AAPL
   #:ticker-price 150
   (buy 100 shares)
-  (sell 1 call #:strike 160 #:expiration 30))
+  (sell 1 call #:strike 160 #:expiration 1000))
 
 (define-option-strategy protective-put-test
   #:ticker 'AAPL
