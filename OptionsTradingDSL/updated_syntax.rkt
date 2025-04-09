@@ -120,7 +120,7 @@
           'strategy-name
           ticker
           cp
-          #f  ;; Auto-insert default safe-mode value
+          #f
           vol
           rfr
           (list legs.result ...)))]
