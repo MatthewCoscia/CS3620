@@ -407,7 +407,6 @@ put strike must be less than call strike"
          [initial-T (/ original-expiration-days 365.0)]
          [cost-basis-per-contract
           (if (equal? premium #f)
-              ;; Only use T=initial_T for cost basis if no premium provided
               (calculate-premium strike ticker-price initial-T
                                  risk-free-rate volatility type)
               premium)]
@@ -513,7 +512,7 @@ put strike must be less than call strike"
              (total-strategy-value-at-time strategy x y))
            x-min x-max
            min-days max-days
-           #:color color))) ;; <- use the color!
+           #:color color)))
        #:title "Option Strategy Value Over Time (3D)"
        #:x-label "Stock Price"
        #:y-label "Days Since Purchase"
@@ -654,7 +653,8 @@ put strike must be less than call strike"
 (define (3dtest2)
   (graph-decision
    (list (list call-alone-no-prem "Long Call" "purple"))
-   #:3d #f))
+   #:3d #t
+   #:days-since-purchase 0))
 
 (define-option-strategy covered-call-test
   #:ticker 'AAPL
