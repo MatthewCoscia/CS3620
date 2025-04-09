@@ -19,6 +19,31 @@
     (option-leg 'buy 1 'call 145 10 1)))) ; ← expanded leg
 |#
 
+; Example Structs:
+#|
+(struct strategy (name ticker ticker-price safe-mode volatility
+                      risk-free-rate legs)
+  #:transparent)
+
+Expanded:
+
+(strategy
+ 'bull-call-spread           ; name
+ 'AAPL                       ; ticker
+ 150                         ; ticker-price
+ #f                          ; safe-mode
+ 0.3                         ; volatility
+ 0.02                        ; risk-free-rate
+ (list (option-leg 'buy 1 'call 140 30 #f)))  ; legs
+
+(struct option-leg (action qty type strike expiration premium)
+  #:transparent)
+
+Expanded:
+
+(option-leg 'buy 1 'call 140 30 #f)
+
+|#
 
 ;; STRATEGY
 (define-option-strategy strategy-name
