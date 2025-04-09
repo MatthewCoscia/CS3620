@@ -80,10 +80,9 @@
 
 
 
-;; Define the main macro
+;; Main
 (define-syntax (define-option-strategy stx)
   (syntax-parse stx
-    ;; Auto-detect shortcut syntax case (strategy-type with arguments)
     [(_ strategy-name:id
         #:ticker ticker:expr
         #:ticker-price cp:expr
@@ -107,7 +106,6 @@
            #:risk-free-rate rfr
            #,@legs))]
 
-    ;; Longform syntax case (explicit legs)
     [(_ strategy-name:id
         #:ticker ticker:expr
         #:ticker-price cp:expr
@@ -120,12 +118,12 @@
           'strategy-name
           ticker
           cp
-          #f  ;; Auto-insert default safe-mode value
+          #f 
           vol
           rfr
           (list legs.result ...)))]
 
-    ;; Error case for invalid strategy syntax
+  
     [_
      (raise-syntax-error 'define-option-strategy
                          "Invalid strategy syntax. Use either:\n"
@@ -134,7 +132,6 @@
 
 
 
-;; Validate strategy inputs before expansion
 (define-for-syntax (validate-strategy-args strategy args-list args-list-stx)
   (define (strike<? a b)
     (and (number? a) (number? b) (< a b)))
@@ -578,7 +575,7 @@ order (k1 < k2 < k3)" strategy)
              (total-strategy-value-at-time strategy x y))
            x-min x-max
            min-days max-days
-           #:color color))) ;; <- use the color!
+           #:color color)))
        #:title "Option Strategy Value Over Time (3D)"
        #:x-label "Stock Price"
        #:y-label "Days Since Purchase"

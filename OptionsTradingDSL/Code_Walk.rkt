@@ -50,7 +50,7 @@
   (sell 10 call  #:strike 255 #:expiration 3))
 
 
-(define-option-strategy-shortcuts call-debit-spread-shortened
+(define-option-strategy call-debit-spread-shortened
   #:ticker 'TSLA
   #:ticker-price 250.50
   #:safe-mode #t
@@ -62,18 +62,15 @@
   #:ticker 'AAPL
   #:ticker-price 145.75
   #:safe-mode #t
-  ((buy ,qty-stx shares)
-   buy ,qty-stx  put  #:strike ,long-put-strike  #:expiration ,expiration)
-  (sell ,qty-stx call #:strike ,short-call-strike #:expiration ,expiration)
+  ((buy 100 shares)
+   buy 1  put  #:strike 140  #:expiration 4)
+  (sell 1 call #:strike 150 #:expiration 4)
 
-(define-option-strategy-shortcuts collar-shortened
+(define-option-strategy collar-shortened
   #:ticker 'AAPL
   #:ticker-price 145.75
   #:safe-mode #t
   (collar 140 150 7))
-
-
-
 
 
 #|
@@ -94,6 +91,10 @@ long-strangle           | (put-strike call-strike expiration)                   
 covered-call            | (strike expiration)                                        | Buy 100 shares, Sell 1 call
 collar                  | (long-put-strike short-call-strike expiration)             | Buy 100 shares, Buy 1 put, Sell 1 call
 diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration)    | Sell near call, Buy far call
+
+..... (Eventual goal is allow users to define their own)
 |#
+
+  
 
 
