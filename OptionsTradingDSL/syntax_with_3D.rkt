@@ -654,8 +654,8 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
   #:ticker-price 150
   #:volatility 0.3
   #:risk-free-rate 0.02
-  (buy 1 put #:strike 155 #:expiration 500)
-  (sell 1 put #:strike 145 #:expiration 500))
+  (buy 1 put #:strike 155 #:expiration 1000)
+  (sell 1 put #:strike 145 #:expiration 1000))
 
 
 
@@ -663,7 +663,7 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
   (graph-decision
    (list (list decaying-call-spread "Call Debit Spread" "blue")
          (list decaying-put-spread "Put Debit Spread" "red"))
-   #:3d #f))
+   #:3d #t))
 
 
 (define-option-strategy call-alone

@@ -382,47 +382,40 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
         (- initial-cost intrinsic-value))))  ;; Limit gains beyond strike
 
 
-
-
-
-(define (find-breakeven strategy min-price max-price step)
-  (let loop ([price min-price] [breakevens '()])
-    (if (> price max-price)
-        (reverse breakevens)
-        (let ([profit (total-strategy-payoff strategy price)]
-              [next-profit (total-strategy-payoff strategy (+ price step))])
-          (if (or (and (>= profit 0) (< next-profit 0))
-                  (and (<= profit 0) (> next-profit 0)))
-              (loop (+ price step) (cons price breakevens))
-              (loop (+ price step) breakevens))))))
-
-
 (define (cdf x)
   (/ (+ 1 (erf (/ x (sqrt 2)))) 2))
 
 (define (black-scholes-call S K T r sigma)
-  (if (= sigma 0)
-      (let ([discounted-K (* K (exp (* (- r) T)))])
-        (max 0 (- S discounted-K)))
-      (let* ([d1 (/ (+ (log (/ S K)) (* (+ r (/ (expt sigma 2) 2)) T))
-                    (* sigma (sqrt T)))]
-             [d2 (- d1 (* sigma (sqrt T)))]
-             [Nd1 (cdf d1)]
-             [Nd2 (cdf d2)]
-             [discount-factor (exp (* (- r) T))])
-        (- (* S Nd1) (* K discount-factor Nd2)))))
+  (cond
+    [(= T 0) (max 0 (- S K))]
+    [(= sigma 0)
+     (let ([discounted-K (* K (exp (* (- r) T)))])
+       (max 0 (- S discounted-K)))]
+    [else
+     (let* ([d1 (/ (+ (log (/ S K)) (* (+ r (/ (expt sigma 2) 2)) T))
+                   (* sigma (sqrt T)))]
+            [d2 (- d1 (* sigma (sqrt T)))]
+            [Nd1 (cdf d1)]
+            [Nd2 (cdf d2)]
+            [discount-factor (exp (* (- r) T))])
+       (- (* S Nd1) (* K discount-factor Nd2)))]))
+
 
 (define (black-scholes-put S K T r sigma)
-  (if (= sigma 0)
-      (let ([discounted-K (* K (exp (* (- r) T)))])
-        (max 0 (- discounted-K S)))
-      (let* ([d1 (/ (+ (log (/ S K)) (* (+ r (/ (expt sigma 2) 2)) T))
-                    (* sigma (sqrt T)))]
-             [d2 (- d1 (* sigma (sqrt T)))]
-             [Nd1 (cdf (- d1))]
-             [Nd2 (cdf (- d2))]
-             [discount-factor (exp (* (- r) T))])
-        (- (* K discount-factor Nd2) (* S Nd1)))))
+  (cond
+    [(= T 0) (max 0 (- K S))]
+    [(= sigma 0)
+     (let ([discounted-K (* K (exp (* (- r) T)))])
+       (max 0 (- discounted-K S)))]
+    [else
+     (let* ([d1 (/ (+ (log (/ S K)) (* (+ r (/ (expt sigma 2) 2)) T))
+                   (* sigma (sqrt T)))]
+            [d2 (- d1 (* sigma (sqrt T)))]
+            [Nd1 (cdf (- d1))]
+            [Nd2 (cdf (- d2))]
+            [discount-factor (exp (* (- r) T))])
+       (- (* K discount-factor Nd2) (* S Nd1)))]))
+
 
 
 
@@ -521,12 +514,29 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
                 (+ max-price-val high-offset)))))
 
 
+(define (find-breakeven-function payoff-fn min-price max-price step)
+  (let loop ([price min-price] [breakevens '()])
+    (if (> price max-price)
+        (reverse breakevens)
+        (let ([profit (payoff-fn price)]
+              [next-profit (payoff-fn (+ price step))])
+          (if (or (and (>= profit 0) (< next-profit 0))
+                  (and (<= profit 0) (> next-profit 0)))
+              (loop (+ price step) (cons price breakevens))
+              (loop (+ price step) breakevens))))))
+
+
 ;;  Create plot elements for a single strategy
-(define (make-single-strategy-plot strategy label color x-min x-max)
-  (define (payoff x) (total-strategy-payoff strategy x))
-  (define breakevens (find-breakeven strategy x-min x-max 1))
+(define (make-single-strategy-plot strategy label color x-min x-max #:days-since-purchase [days-since #f])
+  (define (payoff x)
+    (if days-since
+        (let* ([expiration (apply min (map option-leg-expiration (filter option-leg? (strategy-legs strategy))))]
+               [clipped-days (min days-since expiration)])
+          (total-strategy-value-at-time strategy x clipped-days))
+        (total-strategy-payoff strategy x)))
+  (define breakevens (find-breakeven-function payoff x-min x-max 0.001))
   (list (function payoff #:label label #:color color)
-        (points (map (λ (x) (vector x (payoff x))) breakevens)
+        (points (map (lambda (x) (vector x (payoff x))) breakevens)
                 #:sym 'circle #:size 8 #:color color #:label #f)))
 
 (define (graph-multiple-strategies-3d strategies
@@ -562,16 +572,17 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 
 ;; Main function
 (define (graph-multiple-strategies-2d strategies
-                                   #:min-price [min-price #f]
-                                   #:max-price [max-price #f])
+                                      #:min-price [min-price #f]
+                                      #:max-price [max-price #f]
+                                      #:days-since-purchase [days-since #f])
   (let-values ([(x-min x-max)
                 (get-plot-bounds strategies min-price max-price)])
     (parameterize ([plot-new-window? #t])  
-      (plot (append-map (λ (strat-info)
+      (plot (append-map (lambda (strat-info)
                           (match-define
                             (list strategy label color) strat-info)
                           (make-single-strategy-plot
-                           strategy label color x-min x-max))
+                           strategy label color x-min x-max #:days-since-purchase days-since))
                         strategies)
             #:title "Option Strategy Comparison"
             #:x-label "Stock Price"
@@ -589,14 +600,15 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
                         #:min-days [min-days 1]
                         #:max-days [max-days #f]
                         #:price-step [price-step 5]
-                        #:day-step [day-step 2])
+                        #:day-step [day-step 2]
+                        #:days-since-purchase [days-since #f])
   (define (get-expiration-max strat)
     (apply max (map option-leg-expiration (filter option-leg? (strategy-legs strat)))))
 
   (define computed-max-days
     (or max-days
         (apply max
-               (map (λ (triplet)
+               (map (lambda (triplet)
                       (define strat (first triplet))
                       (get-expiration-max strat))
                     strategy-triplets))))
@@ -613,7 +625,8 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
       (graph-multiple-strategies-2d
        strategy-triplets
        #:min-price min-price
-       #:max-price max-price)))
+       #:max-price max-price
+       #:days-since-purchase days-since)))
 
 
 
@@ -663,7 +676,8 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
   (graph-decision
    (list (list decaying-call-spread "Call Debit Spread" "blue")
          (list decaying-put-spread "Put Debit Spread" "red"))
-   #:3d #f))
+   #:3d #f
+   #:days-since-purchase 500))
 
 
 (define-option-strategy call-alone
@@ -676,7 +690,8 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 (define (3dtest2)
   (graph-decision
    (list (list call-alone "Long Call" "purple"))
-   #:3d #t))
+   #:3d #f
+   #:days-since-purchase 1000))
 
 (define-option-strategy covered-call-test
   #:ticker 'AAPL
