@@ -683,7 +683,8 @@ put strike must be less than call strike"
 
 
 (provide define-option-strategy
-         calculate-premium)
+         calculate-premium
+         option-value-at-time)
 
 (define (debug-premium-and-value)
   (for ([d (in-range 0 11)])
