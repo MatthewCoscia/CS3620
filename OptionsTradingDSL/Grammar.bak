@@ -1,25 +1,6 @@
 #lang racket
 ;;Grammar:
 
-;; Example Expansion
-#|
-(define-option-strategy call-alone
-  #:ticker 'AAPL
-  #:ticker-price 150
-  (buy 1 call #:strike 145 #:expiration 10 #:premium 1))
-(define call-alone
-  (strategy
-   'call-alone                ; name
-   'AAPL                      ; ticker symbol
-   150                        ; current ticker price
-   #f                         ; safe-mode (unused in longform)
-   0.2                        ; default volatility
-   0.05                       ; default risk-free rate
-   (list
-    (option-leg 'buy 1 'call 145 10 1)))) ; ← expanded leg
-|#
-
-
 ;; STRATEGY
 (define-option-strategy strategy-name
   #:ticker 'SYMBOL
