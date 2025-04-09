@@ -463,7 +463,7 @@ put strike must be less than call strike"
          [initial-T (/ original-expiration-days 365.0)]
          [cost-basis-per-contract
           (if (equal? premium #f)
-              ;; Calculate premium at day 0 using ticker price
+              ;; Only use T=initial_T for cost basis if no premium provided
               (calculate-premium strike ticker-price initial-T
                                  risk-free-rate volatility type)
               premium)]
@@ -711,9 +711,9 @@ put strike must be less than call strike"
 
 (define (3dtest2)
   (graph-decision
-   (list (list call-alone "Long Call" "purple"))
+   (list (list call-alone-no-prem "Long Call" "purple"))
    #:3d #f
-   #:days-since-purchase 1000))
+   #:days-since-purchase 0))
 
 (define-option-strategy covered-call-test
   #:ticker 'AAPL
@@ -744,6 +744,33 @@ put strike must be less than call strike"
 (provide define-option-strategy
          calculate-premium
          option-payoff)
+
+(define (debug-premium-and-value)
+  (for ([d (in-range 0 11)])
+    (define T (/ (- 10 d) 365.0))
+    (define initial-T (/ 10 365.0))
+    (define strike 145)
+    (define price 150)
+    (define quantity 1)
+    (define type 'call)
+    (define rfr 0.02)
+    (define vol 0.3)
+    (define action 'buy)
+
+    ;; Calculate cost basis using initial T and ticker price
+    (define cost-basis
+      (calculate-premium strike price initial-T rfr vol type))
+    ;; Calculate BS value using current time to expiry
+    (define bs-value
+      (calculate-premium strike price T rfr vol type))
+    (define payoff (- (* quantity 100 bs-value)
+                      (* quantity 100 cost-basis)))
+
+    (printf "Day ~a:\n" d)
+    (printf "  Premium (Day 0): ~a ($~a)\n" cost-basis (* quantity 100 cost-basis))
+    (printf "  BS Value (Day ~a): ~a ($~a)\n" d bs-value (* quantity 100 bs-value))
+    (printf "  P/L: $~a\n\n" payoff)))
+
 
 
 
