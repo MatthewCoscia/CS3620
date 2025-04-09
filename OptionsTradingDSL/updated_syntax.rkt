@@ -687,13 +687,13 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
   #:ticker-price 150
   #:volatility 0.3
   #:risk-free-rate 0.02
-  (buy 1 call #:strike 145 #:expiration 10))
+  (buy 1 call #:strike 145 #:expiration 10 #:premium 1))
 
 (define (3dtest2)
   (graph-decision
    (list (list call-alone "Long Call" "purple"))
    #:3d #f
-   #:days-since-purchase 0))
+   #:days-since-purchase 1000))
 
 (define-option-strategy covered-call-test
   #:ticker 'AAPL
