@@ -10,7 +10,7 @@
          rackunit/text-ui
          math/special-functions)
 
-;; Define the structures
+
 (struct strategy (name ticker ticker-price safe-mode volatility
                       risk-free-rate legs)
   #:transparent)
@@ -19,7 +19,7 @@
 (struct shares-leg (action qty)
   #:transparent)
 
-;; Define the syntax classes at compile time
+
 (begin-for-syntax
   (define-syntax-class action
     #:description "buy or sell action"
@@ -71,12 +71,14 @@
               (~optional (~seq #:premium p:non-negative-premium)
                          #:defaults ([p #'#f])))
              #:with result #'(option-leg 'action.act qty 'type.t s exp p))
-    ;; Pattern for share legs - correctly match the 'shares' symbol
+    ;; Pattern for share legs 
     (pattern (action:action
               qty:positive-whole-qty
               shares-kw)
              #:when (equal? (syntax->datum #'shares-kw) 'shares)
              #:with result #'(shares-leg 'action.act qty))))
+
+
 
 ;; Define the main macro
 (define-syntax (define-option-strategy stx)
@@ -88,7 +90,7 @@
         (~optional (~seq #:volatility vol:expr)
                    #:defaults ([vol #'0.2]))    ;; Default Volatility: 20%
         (~optional (~seq #:risk-free-rate rfr:expr)
-                   #:defaults ([rfr #'0.05]))   ;; Default Risk-Free Rate: 5%'
+                   #:defaults ([rfr #'0.05]))   ;; Default Risk Free Rate: 5%
         legs:leg-pattern ...)
      
      #`(define strategy-name
@@ -101,95 +103,173 @@
           rfr                 ;; Risk-free rate
           (list legs.result ...)))]))
 
-(define-for-syntax (expand-strategy-legs strategy args-list)
+
+#|
+Supported Strategies
+--------------------
+
+Strategy                | Required Arguments                                         | Legs Generated
+------------------------|------------------------------------------------------------|-----------------------------------------------------------
+call-debit-spread       | (buy-strike sell-strike expiration)                        | Buy call @ strike1, Sell call @ strike2
+put-debit-spread        | (buy-strike sell-strike expiration)                        | Buy put @ strike1, Sell put @ strike2
+butterfly-spread        | (low-strike mid-strike high-strike expiration)             | Buy call @ k1, Sell 2 calls @ k2, Buy call @ k3
+call-credit-spread      | (sell-strike buy-strike expiration)                        | Sell call @ strike1, Buy call @ strike2
+put-credit-spread       | (sell-strike1 buy-strike expiration)                       | Sell put @ strike1, Buy put @ strike2
+iron-condor             | (strike1-g1 strike2-g1 strike3-g2 strike4-g2 expiration)   | Buy put @ k1, Sell put @ k2, Sell call @ k3, Buy call @ k4
+iron-butterfly          | (low-strike mid-strike high-strike expiration)             | Buy put @ k1, Sell put @ k2, Sell call @ k2, Buy call @ k3
+long-straddle           | (strike expiration)                                        | Buy call + put @ same strike
+long-strangle           | (put-strike call-strike expiration)                        | Buy put @ put-strike, Buy call @ call-strike
+covered-call            | (strike expiration)                                        | Buy 100 shares, Sell 1 call
+collar                  | (long-put-strike short-call-strike expiration)             | Buy 100 shares, Buy 1 put, Sell 1 call
+diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration)    | Sell near call, Buy far call
+|#
+
+;; Validate strategy inputs before expansion
+(define-for-syntax (validate-strategy-args strategy args-list args-list-stx)
+  (define (strike<? a b)
+    (and (number? a) (number? b) (< a b)))
+
+  (define (strike>? a b)
+    (and (number? a) (number? b) (> a b)))
+
+  (case strategy
+    [(call-debit-spread)
+     (define-values (buy-strike sell-strike expiration) (apply values args-list))
+     (define-values (buy-stx sell-stx expiration-stx) (apply values args-list-stx))
+     (unless (strike<? buy-strike sell-strike)
+       (raise-syntax-error 'define-option-strategy
+         "Invalid call-debit-spread: buy strike must be less than sell strike"
+         buy-stx))]
+
+    [(put-debit-spread)
+     (define-values (buy-strike sell-strike expiration) (apply values args-list))
+     (unless (strike>? buy-strike sell-strike)
+       (error "Invalid put-debit-spread: buy strike must be greater than sell strike"))]
+
+    [(call-credit-spread)
+     (define-values (sell-strike buy-strike expiration) (apply values args-list))
+     (unless (strike>? sell-strike buy-strike)
+       (error "Invalid call-credit-spread: sell strike must be greater than buy strike"))]
+
+    [(put-credit-spread)
+     (define-values (sell-strike buy-strike expiration) (apply values args-list))
+     (unless (strike<? sell-strike buy-strike)
+       (error "Invalid put-credit-spread: sell strike must be less than buy strike"))]
+
+    [(butterfly-spread iron-butterfly)
+     (define-values (k1 k2 k3 expiration) (apply values args-list))
+     (unless (and (not (= k1 k2)) (not (= k2 k3)) (not (= k1 k3)))
+       (error "Butterfly: strikes must be distinct"))
+     (unless (and (strike<? k1 k2) (strike<? k2 k3))
+       (error (format "Invalid ~a: strikes must be in ascending order (k1 < k2 < k3)" strategy)))]
+
+    [(iron-condor)
+     (define-values (k1 k2 k3 k4 expiration) (apply values args-list))
+     (unless (and (strike<? k1 k2) (strike<? k2 k3) (strike<? k3 k4))
+       (error "Invalid iron-condor: strikes must be in ascending order (k1 < k2 < k3 < k4)"))]
+
+    [(long-strangle)
+     (define-values (put-strike call-strike expiration) (apply values args-list))
+     (unless (strike<? put-strike call-strike)
+       (error "Invalid long-strangle: put strike must be less than call strike"))]
+
+    [else (void)]))
+
+(define-for-syntax (expand-strategy-legs strategy args-list qty-stx args-list-stx)
+  (validate-strategy-args strategy args-list args-list-stx)
+  (define qty*100-stx #`(* #,qty-stx 100))
+  (define qty*2-stx #`(* #,qty-stx 2))
   (cond
+    ;; Call Debit Spread
     [(eq? strategy 'call-debit-spread)
      (define-values (strike1 strike2 expiration) (apply values args-list))
      (list
-      `(buy 1 call #:strike ,strike1 #:expiration ,expiration)
-      `(sell 1 call #:strike ,strike2 #:expiration ,expiration))]
+      `(buy ,qty-stx call #:strike ,strike1 #:expiration ,expiration)
+      `(sell ,qty-stx call #:strike ,strike2 #:expiration ,expiration))]
 
+    ;; Put Debit Spread
     [(eq? strategy 'put-debit-spread)
      (define-values (strike1 strike2 expiration) (apply values args-list))
      (list
-      `(buy 1 put #:strike ,strike1 #:expiration ,expiration)
-      `(sell 1 put #:strike ,strike2 #:expiration ,expiration))]
+      `(buy ,qty-stx put #:strike ,strike1 #:expiration ,expiration)
+      `(sell ,qty-stx put #:strike ,strike2 #:expiration ,expiration))]
 
+    ;; Butterfly spread
     [(eq? strategy 'butterfly-spread)
      (define-values (k1 k2 k3 expiration) (apply values args-list))
      (list
-      `(buy 1 call #:strike ,k1 #:expiration ,expiration)
-      `(sell 2 call #:strike ,k2 #:expiration ,expiration)
-      `(buy 1 call #:strike ,k3 #:expiration ,expiration))]
+      `(buy ,qty-stx call #:strike ,k1 #:expiration ,expiration)
+      `(sell qty*2-stx call #:strike ,k2 #:expiration ,expiration)
+      `(buy ,qty-stx call #:strike ,k3 #:expiration ,expiration))]
 
     ;; Call credit spread
     [(eq? strategy 'call-credit-spread)
      (define-values (strike1 strike2 expiration) (apply values args-list))
      (list
-      `(sell 1 call #:strike ,strike1 #:expiration ,expiration)
-      `(buy 1 call #:strike ,strike2 #:expiration ,expiration))]
+      `(sell ,qty-stx call #:strike ,strike1 #:expiration ,expiration)
+      `(buy ,qty-stx call #:strike ,strike2 #:expiration ,expiration))]
 
     ;; Put credit spread
     [(eq? strategy 'put-credit-spread)
      (define-values (strike1 strike2 expiration) (apply values args-list))
      (list
-      `(sell 1 put #:strike ,strike1 #:expiration ,expiration)
-      `(buy 1 put #:strike ,strike2 #:expiration ,expiration))]
+      `(sell ,qty-stx put #:strike ,strike1 #:expiration ,expiration)
+      `(buy ,qty-stx put #:strike ,strike2 #:expiration ,expiration))]
 
     ;; Iron condor
     [(eq? strategy 'iron-condor)
      (define-values (k1 k2 k3 k4 expiration) (apply values args-list))
      (list
-      `(buy 1 put  #:strike ,k1 #:expiration ,expiration)
-      `(sell 1 put #:strike ,k2 #:expiration ,expiration)
-      `(sell 1 call #:strike ,k3 #:expiration ,expiration)
-      `(buy 1 call #:strike ,k4 #:expiration ,expiration))]
+      `(buy ,qty-stx put  #:strike ,k1 #:expiration ,expiration)
+      `(sell ,qty-stx put #:strike ,k2 #:expiration ,expiration)
+      `(sell ,qty-stx call #:strike ,k3 #:expiration ,expiration)
+      `(buy ,qty-stx call #:strike ,k4 #:expiration ,expiration))]
 
     ;; Iron butterfly
     [(eq? strategy 'iron-butterfly)
      (define-values (k1 k2 k3 expiration) (apply values args-list))
      (list
-      `(buy 1 put  #:strike ,k1 #:expiration ,expiration)
-      `(sell 1 put  #:strike ,k2 #:expiration ,expiration)
-      `(sell 1 call #:strike ,k2 #:expiration ,expiration)
-      `(buy 1 call #:strike ,k3 #:expiration ,expiration))]
+      `(buy ,qty-stx put  #:strike ,k1 #:expiration ,expiration)
+      `(sell ,qty-stx put  #:strike ,k2 #:expiration ,expiration)
+      `(sell ,qty-stx call #:strike ,k2 #:expiration ,expiration)
+      `(buy ,qty-stx call #:strike ,k3 #:expiration ,expiration))]
 
     ;; Long straddle
     [(eq? strategy 'long-straddle)
      (define-values (strike expiration) (apply values args-list))
      (list
-      `(buy 1 call #:strike ,strike #:expiration ,expiration)
-      `(buy 1 put  #:strike ,strike #:expiration ,expiration))]
+      `(buy ,qty-stx call #:strike ,strike #:expiration ,expiration)
+      `(buy ,qty-stx put  #:strike ,strike #:expiration ,expiration))]
 
     ;; Long strangle
     [(eq? strategy 'long-strangle)
      (define-values (put-strike call-strike expiration) (apply values args-list))
      (list
-      `(buy 1 put  #:strike ,put-strike  #:expiration ,expiration)
-      `(buy 1 call #:strike ,call-strike #:expiration ,expiration))]
+      `(buy ,qty-stx put  #:strike ,put-strike  #:expiration ,expiration)
+      `(buy ,qty-stx call #:strike ,call-strike #:expiration ,expiration))]
 
     ;; Covered call
     [(eq? strategy 'covered-call)
      (define-values (strike expiration) (apply values args-list))
      (list
-      '(buy 100 shares)
-      `(sell 1 call #:strike ,strike #:expiration ,expiration))]
+      '(buy qty*100-stx shares)
+      `(sell ,qty-stx call #:strike ,strike #:expiration ,expiration))]
 
     ;; Collar
     [(eq? strategy 'collar)
      (define-values (long-put-strike short-call-strike expiration) (apply values args-list))
      (list
-      '(buy 100 shares)
-      `(buy 1  put  #:strike ,long-put-strike  #:expiration ,expiration)
-      `(sell 1 call #:strike ,short-call-strike #:expiration ,expiration))]
+      `(buy ,qty*100-stx shares)
+      `(buy ,qty-stx  put  #:strike ,long-put-strike  #:expiration ,expiration)
+      `(sell ,qty-stx call #:strike ,short-call-strike #:expiration ,expiration))]
 
-    ;; Diagonal call spread (example)
+    ;; Diagonal call spread
     [(eq? strategy 'diagonal-call-spread)
      (define-values (near-strike near-expiration far-strike far-expiration)
        (apply values args-list))
      (list
-      `(buy 1 call #:strike ,far-strike  #:expiration ,far-expiration)
-      `(sell 1 call #:strike ,near-strike #:expiration ,near-expiration))]
+      `(buy ,qty-stx call #:strike ,far-strike  #:expiration ,far-expiration)
+      `(sell ,qty-stx call #:strike ,near-strike #:expiration ,near-expiration))]
 
         [else
      (error "Unknown strategy:" strategy)]))
@@ -202,12 +282,15 @@
         #:safe-mode safe:expr
         (~optional [~seq #:volatility vol:expr] #:defaults ([vol #'0.2]))
         (~optional [~seq #:risk-free-rate rfr:expr] #:defaults ([rfr #'0.05]))
+        (~optional [~seq #:quantity q:expr] #:defaults ([q #'1]))
         (strategy-type:id args:expr ...))
 
-     (define strategy (syntax-e #'strategy-type))
-     (define args-list (map syntax-e (syntax->list #'(args ...))))
 
-     (define legs (expand-strategy-legs strategy args-list))
+     (define strategy (syntax-e #'strategy-type))
+     (define args-list-stx (syntax->list #'(args ...)))
+     (define args-list (map syntax-e args-list-stx))
+  
+     (define legs (expand-strategy-legs strategy args-list #'q args-list-stx))
 
      #`(define-option-strategy strategy-name
          #:ticker         ticker
@@ -216,6 +299,7 @@
          #:volatility     vol
          #:risk-free-rate rfr
          #,@legs)]))
+
 
 (define (share-payoff stock-price action quantity ticker-price)
   (let ([price-change (- stock-price ticker-price)])
@@ -262,13 +346,17 @@
          [raw-payoff (cond
                        [(eq? type 'call) (max 0 (- stock-price strike))]
                        [(eq? type 'put)  (max 0 (- strike stock-price))])]
-         [intrinsic-value (* quantity raw-payoff)]  ;; Pure option value
-         [initial-cost (* quantity actual-premium)])  ;; Cost upfront
+         [intrinsic-value (* quantity 100 raw-payoff)] ;; pure option value
+         [initial-cost     (* quantity 100 actual-premium)])  ;; Cost upfront
     
     ;; Adjust for long and short call behavior
     (if (eq? action 'buy)
         (- intrinsic-value initial-cost)  ;; Buying: Pay premium upfront
         (- initial-cost intrinsic-value))))  ;; Limit gains beyond strike
+
+
+
+
 
 (define (find-breakeven strategy min-price max-price step)
   (let loop ([price min-price] [breakevens '()])
@@ -332,14 +420,6 @@
             price
             (total-strategy-payoff strat price))))
 
-(define (strategy-max-expiration strat)
-  (apply max
-         (for/list ([leg (strategy-legs strat)]
-                    #:when (option-leg? leg))
-           (option-leg-expiration leg))))
-
-
-
 (define (option-value-at-time stock-price
                               strike
                               action
@@ -351,29 +431,20 @@
                               days-since-purchase
                               original-expiration-days
                               ticker-price)
-  (let* ([T (/ (- original-expiration-days days-since-purchase) 365.0)] ; flip it!
+  (let* ([T (/ (- original-expiration-days days-since-purchase) 365.0)]
          [original-T (/ original-expiration-days 365.0)]
          [actual-premium
           (if (equal? premium #f)
-              (calculate-premium strike
-                                 ticker-price
-                                 original-T
-                                 risk-free-rate
-                                 volatility
-                                 type)
+              (calculate-premium strike ticker-price original-T
+                                 risk-free-rate volatility type)
               premium)]
-         [bs-value
-          (calculate-premium strike
-                             stock-price
-                             T
-                             risk-free-rate
-                             volatility
-                             type)]
-         [net-value (* quantity bs-value)]
-         [cost      (* quantity actual-premium)])
+         [bs-value (calculate-premium strike stock-price T
+                                      risk-free-rate volatility type)]
+         [net-value (* quantity 100 bs-value)]
+         [cost      (* quantity 100 actual-premium)])
     (if (eq? action 'buy)
         (- net-value cost)
-        (- cost net-value)))) ;; Selling the option means net gain is cost - BS-value
+        (- cost net-value))))
 
 (define (total-strategy-value-at-time strat stock-price days-remaining)
   (let* ([legs            (strategy-legs strat)]
@@ -394,7 +465,7 @@
                                        risk-free-rate
                                        volatility
                                        days-remaining
-                                       (option-leg-expiration leg)  ; << new arg!
+                                       (option-leg-expiration leg)
                                        ticker-price)]
                 [(shares-leg? leg)
                  ;; Shares payoff is basically stock-price - cost basis:
@@ -406,10 +477,7 @@
                  (error "Unknown leg type" leg)]))
             legs))))
 
-
-
-
-;; Helper 1: Calculate plot boundaries
+;; Calculate plot boundaries
 (define (get-plot-bounds strategies min-price max-price)
   (if (or min-price max-price)
       (let* ([base-price (strategy-ticker-price (caar strategies))]
@@ -426,70 +494,13 @@
                 (+ max-price-val high-offset)))))
 
 
-;; Helper 2: Create plot elements for a single strategy
+;;  Create plot elements for a single strategy
 (define (make-single-strategy-plot strategy label color x-min x-max)
   (define (payoff x) (total-strategy-payoff strategy x))
   (define breakevens (find-breakeven strategy x-min x-max 1))
   (list (function payoff #:label label #:color color)
         (points (map (λ (x) (vector x (payoff x))) breakevens)
                 #:sym 'circle #:size 8 #:color color #:label #f)))
-
-
-(define (graph-decision strategy-triplets
-                        #:3d [use-3d? #f]
-                        #:min-price [min-price #f]
-                        #:max-price [max-price #f]
-                        #:min-days [min-days 1]
-                        #:max-days [max-days #f]
-                        #:price-step [price-step 5]
-                        #:day-step [day-step 2])
-  (define (get-expiration-max strat)
-    (apply max (map option-leg-expiration (filter option-leg? (strategy-legs strat)))))
-
-  (define computed-max-days
-    (or max-days
-        (apply max
-               (map (λ (triplet)
-                      (define strat (first triplet))
-                      (get-expiration-max strat))
-                    strategy-triplets))))
-
-  (if use-3d?
-      (graph-multiple-strategies-3d
-       strategy-triplets
-       #:min-price min-price
-       #:max-price max-price
-       #:min-days min-days
-       #:max-days computed-max-days
-       #:price-step price-step
-       #:day-step day-step)
-      (graph-multiple-strategies
-       strategy-triplets
-       #:min-price min-price
-       #:max-price max-price)))
-
-
-;; Main function
-(define (graph-multiple-strategies strategies
-                                   #:min-price [min-price #f]
-                                   #:max-price [max-price #f])
-  (let-values ([(x-min x-max)
-                (get-plot-bounds strategies min-price max-price)])
-    (parameterize ([plot-new-window? #t])  
-      (plot (append-map (λ (strat-info)
-                          (match-define
-                            (list strategy label color) strat-info)
-                          (make-single-strategy-plot
-                           strategy label color x-min x-max))
-                        strategies)
-            #:title "Option Strategy Comparison"
-            #:x-label "Stock Price"
-            #:y-label "Profit/Loss"
-            #:x-min x-min
-            #:x-max x-max
-            #:width 1400
-            #:height 600
-            #:legend-anchor 'outside-right))))
 
 (define (graph-multiple-strategies-3d strategies
                                       #:min-price [min-price #f]
@@ -522,7 +533,60 @@
        #:width 1400
        #:height 600))))
 
+;; Main function
+(define (graph-multiple-strategies-2d strategies
+                                   #:min-price [min-price #f]
+                                   #:max-price [max-price #f])
+  (let-values ([(x-min x-max)
+                (get-plot-bounds strategies min-price max-price)])
+    (parameterize ([plot-new-window? #t])  
+      (plot (append-map (λ (strat-info)
+                          (match-define
+                            (list strategy label color) strat-info)
+                          (make-single-strategy-plot
+                           strategy label color x-min x-max))
+                        strategies)
+            #:title "Option Strategy Comparison"
+            #:x-label "Stock Price"
+            #:y-label "Profit/Loss"
+            #:x-min x-min
+            #:x-max x-max
+            #:width 1400
+            #:height 600
+            #:legend-anchor 'outside-right))))
 
+(define (graph-decision strategy-triplets
+                        #:3d [use-3d? #f]
+                        #:min-price [min-price #f]
+                        #:max-price [max-price #f]
+                        #:min-days [min-days 1]
+                        #:max-days [max-days #f]
+                        #:price-step [price-step 5]
+                        #:day-step [day-step 2])
+  (define (get-expiration-max strat)
+    (apply max (map option-leg-expiration (filter option-leg? (strategy-legs strat)))))
+
+  (define computed-max-days
+    (or max-days
+        (apply max
+               (map (λ (triplet)
+                      (define strat (first triplet))
+                      (get-expiration-max strat))
+                    strategy-triplets))))
+
+  (if use-3d?
+      (graph-multiple-strategies-3d
+       strategy-triplets
+       #:min-price min-price
+       #:max-price max-price
+       #:min-days min-days
+       #:max-days computed-max-days
+       #:price-step price-step
+       #:day-step day-step)
+      (graph-multiple-strategies-2d
+       strategy-triplets
+       #:min-price min-price
+       #:max-price max-price)))
 
 
 
@@ -530,6 +594,7 @@
   #:ticker 'AAPL
   #:ticker-price 145.75
   #:safe-mode #t
+  #:quantity 2
   (call-debit-spread 140 150 7))
 
 (define-option-strategy-shortcuts collar-shortened
@@ -539,90 +604,100 @@
   (collar 140 150 7))
 
 (define (graph-preview)
-  (graph-multiple-strategies
-   (list (list collar-shortened "Bull Call Spread" "blue")
-         (list bullish-strat-shortened "Bullish Short" "red"))
-   #:min-price 50  ; Optional manual price range
+  (graph-decision
+   (list (list collar-shortened "Bull Call Spread" "blue"))
+   #:3d #f
+   #:min-price 50
    #:max-price 350))
 
 (define (graph-preview-single)
-  (graph-multiple-strategies
-   (list (list bullish-strat-shortened "Bull Call Spread" "blue"))))
+  (graph-decision
+   (list (list bullish-strat-shortened "Bull Call Spread" "blue"))
+   #:3d #t))
 
-
-
-(define-option-strategy fancy-custom-strat
-  #:ticker 'TSLA
-  #:ticker-price 250
+(define-option-strategy decaying-call-spread
+  #:ticker 'AAPL
+  #:ticker-price 150
   #:safe-mode #f
-  ;; Turn on 3D for fun
-  (buy 1 call #:strike 240 #:expiration 30)
-  (sell 1 call #:strike 260 #:expiration 30)
-  (buy 1 put  #:strike 230 #:expiration 30))
+  #:volatility 0.3
+  #:risk-free-rate 0.02
+  (buy 1 call #:strike 145 #:expiration 1000)
+  (sell 1 call #:strike 155 #:expiration 1000))
 
 
-(define-option-strategy big-curve
-  #:ticker 'FAKE
-  #:ticker-price 100
+(define-option-strategy decaying-put-spread
+  #:ticker 'AAPL
+  #:ticker-price 150
   #:safe-mode #f
-  #:volatility 5.0          ; extremely high IV
-  #:risk-free-rate 0.0
-  (buy 1 call #:strike 100 #:expiration 60))
+  #:volatility 0.3
+  #:risk-free-rate 0.02
+  (buy 1 put #:strike 155 #:expiration 1000)
+  (sell 1 put #:strike 145 #:expiration 1000))
 
 
 
-(define (test20)
-(graph-decision big-curve
-                #:3d #f
-                #:label "High Vol ATM Call"
-                #:color "purple"))
+(define (3dtest)
+  (graph-decision
+   (list (list decaying-call-spread "Call Debit Spread" "blue")
+         (list decaying-put-spread "Put Debit Spread" "red"))
+   #:3d #f))
 
-(define (test21)
-(graph-decision big-curve
-                #:3d #t
-                #:label "High Vol ATM Call"
-                #:color "purple"))
 
-(define-option-strategy high-vol-straddle
-  #:ticker 'TSLA
-  #:ticker-price 250
+(define-option-strategy call-alone
+  #:ticker 'AAPL
+  #:ticker-price 150
   #:safe-mode #f
-  #:volatility 1.2
-  #:risk-free-rate 0.01
-  (buy 1 call #:strike 250 #:expiration 30)
-  (buy 1 put  #:strike 250 #:expiration 30))
-
-(define-option-strategy high-vol-strangle
-  #:ticker 'TSLA
-  #:ticker-price 250
-  #:safe-mode #f
-  #:volatility 1.2
-  #:risk-free-rate 0.01
-  (buy 1 call #:strike 270 #:expiration 30)
-  (buy 1 put  #:strike 230 #:expiration 30))
+  #:volatility 0.3
+  #:risk-free-rate 0.02
+  (buy 1 call #:strike 145 #:expiration 1000))
 
 (graph-decision
- (list (list high-vol-straddle "Straddle" "green")
-       (list high-vol-strangle "Strangle" "orange"))
- #:3d #t
- #:min-price 200
- #:max-price 300)
+ (list (list call-alone "Long Call" "purple"))
+ #:3d #t)
 
-(graph-decision
- (list (list high-vol-straddle "Straddle" "green")
-       (list high-vol-strangle "Strangle" "orange"))
- #:3d #f)
+(define-option-strategy covered-call-test
+  #:ticker 'AAPL
+  #:ticker-price 150
+  #:safe-mode #f
+  (buy 100 shares)
+  (sell 1 call #:strike 160 #:expiration 30))
+
+(define-option-strategy protective-put-test
+  #:ticker 'AAPL
+  #:ticker-price 150
+  #:safe-mode #f
+  (buy 100 shares)
+  (buy 1 put #:strike 140 #:expiration 30))
+
+(define-option-strategy synthetic-short-put
+  #:ticker 'AAPL
+  #:ticker-price 150
+  #:safe-mode #f
+  (sell 100 shares)
+  (buy 1 call #:strike 150 #:expiration 30))
+
+(define (share-test)
+  (graph-decision
+   (list (list covered-call-test "Covered Call" "blue")
+         (list protective-put-test "Protective Put" "green")
+         (list synthetic-short-put "Synthetic Short Put" "red"))
+   #:3d #f))
+
+
+(provide define-option-strategy
+         calculate-premium
+         option-payoff)
+
+#;
+(define-option-strategy-shortcuts bad-call-debit
+  #:ticker 'AAPL
+  #:ticker-price 150
+  #:safe-mode #t
+  #:quantity 1
+  (call-debit-spread 160 150 30))
 
 
 
 
-
-
-
-
-
-
-
-
-
-
+#;
+(graph-preview-single)

@@ -79,28 +79,60 @@
              #:with result #'(shares-leg 'action.act qty))))
 
 
+
 ;; Define the main macro
 (define-syntax (define-option-strategy stx)
   (syntax-parse stx
+    ;; Shortcut syntax case
     [(_ strategy-name:id
-        #:ticker ticker:ticker-symbol
-        #:ticker-price cp:positive-price
-        #:safe-mode safe:safe-mode
-        (~optional (~seq #:volatility vol:expr)
-                   #:defaults ([vol #'0.2]))    ;; Default Volatility: 20%
-        (~optional (~seq #:risk-free-rate rfr:expr)
-                   #:defaults ([rfr #'0.05]))   ;; Default Risk Free Rate: 5%
+        #:ticker ticker:expr
+        #:ticker-price cp:expr
+        #:shortcut-mode shortcut:expr
+        (~optional (~seq #:volatility vol:expr) #:defaults ([vol #'0.2]))
+        (~optional (~seq #:risk-free-rate rfr:expr) #:defaults ([rfr #'0.05]))
+        (~optional (~seq #:quantity q:expr) #:defaults ([q #'1]))
+        (strategy-type:id args:expr ...))
+
+     ;; Validate shortcut mode
+     (if (equal? (syntax-e #'shortcut) #f)
+         (raise-syntax-error 'define-option-strategy
+           "Shortcut syntax requires #:shortcut-mode #t"
+           #'strategy-type)
+         (let ()
+           (define strategy (syntax-e #'strategy-type))
+           (define args-list-stx (syntax->list #'(args ...)))
+           (define args-list (map syntax-e args-list-stx))
+           (define legs (expand-strategy-legs strategy args-list #'q args-list-stx))
+
+           #`(define-option-strategy
+               strategy-name
+               #:ticker ticker
+               #:ticker-price cp
+               #:shortcut-mode #f  ; Disable to prevent recursion
+               #:volatility vol
+               #:risk-free-rate rfr
+               #,@legs)))]
+
+    ;; Longform syntax case
+    [(_ strategy-name:id
+        #:ticker ticker:expr
+        #:ticker-price cp:expr
+        #:shortcut-mode shortcut:expr
+        (~optional (~seq #:volatility vol:expr) #:defaults ([vol #'0.2]))
+        (~optional (~seq #:risk-free-rate rfr:expr) #:defaults ([rfr #'0.05]))
         legs:leg-pattern ...)
-     
+
+     ;; Directly create strategy struct
      #`(define strategy-name
          (strategy
           'strategy-name
-          ticker.sym          ;; Ticker symbol
-          cp                  ;; Ticker price
-          safe                ;; Safe mode?
-          vol                 ;; Volatility
-          rfr                 ;; Risk-free rate
+          ticker
+          cp
+          shortcut
+          vol
+          rfr
           (list legs.result ...)))]))
+
 
 
 #|
@@ -124,7 +156,7 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 |#
 
 ;; Validate strategy inputs before expansion
-(define-for-syntax (validate-strategy-args strategy args-list)
+(define-for-syntax (validate-strategy-args strategy args-list args-list-stx)
   (define (strike<? a b)
     (and (number? a) (number? b) (< a b)))
 
@@ -134,45 +166,73 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
   (case strategy
     [(call-debit-spread)
      (define-values (buy-strike sell-strike expiration) (apply values args-list))
+     (define-values (buy-stx sell-stx expiration-stx) (apply values args-list-stx))
      (unless (strike<? buy-strike sell-strike)
-       (error "Invalid call-debit-spread: buy strike must be less than sell strike"))]
+       (raise-syntax-error 'define-option-strategy
+                           "Invalid call-debit-spread: buy strike must be less than sell strike"
+                           buy-stx))]
 
     [(put-debit-spread)
      (define-values (buy-strike sell-strike expiration) (apply values args-list))
+     (define-values (buy-stx sell-stx expiration-stx) (apply values args-list-stx))
      (unless (strike>? buy-strike sell-strike)
-       (error "Invalid put-debit-spread: buy strike must be greater than sell strike"))]
+       (raise-syntax-error 'define-option-strategy
+                           "Invalid put-debit-spread: buy strike must be greater than sell strike"
+                           buy-stx))]
 
     [(call-credit-spread)
      (define-values (sell-strike buy-strike expiration) (apply values args-list))
+     (define-values (sell-stx buy-stx expiration-stx) (apply values args-list-stx))
      (unless (strike>? sell-strike buy-strike)
-       (error "Invalid call-credit-spread: sell strike must be greater than buy strike"))]
+       (raise-syntax-error 'define-option-strategy
+                           "Invalid call-credit-spread: sell strike must be greater than buy strike"
+                           sell-stx))]
+
 
     [(put-credit-spread)
      (define-values (sell-strike buy-strike expiration) (apply values args-list))
+     (define-values (sell-stx buy-stx expiration-stx) (apply values args-list-stx))
      (unless (strike<? sell-strike buy-strike)
-       (error "Invalid put-credit-spread: sell strike must be less than buy strike"))]
+       (raise-syntax-error 'define-option-strategy
+                           "Invalid put-credit-spread: sell strike must be less than buy strike"
+                           sell-stx))]
+
 
     [(butterfly-spread iron-butterfly)
      (define-values (k1 k2 k3 expiration) (apply values args-list))
+     (define-values (k1-stx k2-stx k3-stx expiration-stx) (apply values args-list-stx))
      (unless (and (not (= k1 k2)) (not (= k2 k3)) (not (= k1 k3)))
-       (error "Butterfly: strikes must be distinct"))
+       (raise-syntax-error 'define-option-strategy
+                           "Invalid butterfly: strikes must be distinct"
+                           k1-stx))
      (unless (and (strike<? k1 k2) (strike<? k2 k3))
-       (error (format "Invalid ~a: strikes must be in ascending order (k1 < k2 < k3)" strategy)))]
+       (raise-syntax-error 'define-option-strategy
+                           (format "Invalid ~a: strikes must be in ascending order (k1 < k2 < k3)" strategy)
+                           k1-stx))]
+
 
     [(iron-condor)
      (define-values (k1 k2 k3 k4 expiration) (apply values args-list))
+     (define-values (k1-stx k2-stx k3-stx k4-stx expiration-stx) (apply values args-list-stx))
      (unless (and (strike<? k1 k2) (strike<? k2 k3) (strike<? k3 k4))
-       (error "Invalid iron-condor: strikes must be in ascending order (k1 < k2 < k3 < k4)"))]
+       (raise-syntax-error 'define-option-strategy
+                           "Invalid iron-condor: strikes must be in ascending order (k1 < k2 < k3 < k4)"
+                           k1-stx))]
+
 
     [(long-strangle)
      (define-values (put-strike call-strike expiration) (apply values args-list))
+     (define-values (put-stx call-stx expiration-stx) (apply values args-list-stx))
      (unless (strike<? put-strike call-strike)
-       (error "Invalid long-strangle: put strike must be less than call strike"))]
+       (raise-syntax-error 'define-option-strategy
+                           "Invalid long-strangle: put strike must be less than call strike"
+                           put-stx))]
+
 
     [else (void)]))
 
-(define-for-syntax (expand-strategy-legs strategy args-list qty-stx)
-  (validate-strategy-args strategy args-list)
+(define-for-syntax (expand-strategy-legs strategy args-list qty-stx args-list-stx)
+  (validate-strategy-args strategy args-list args-list-stx)
   (define qty*100-stx #`(* #,qty-stx 100))
   (define qty*2-stx #`(* #,qty-stx 2))
   (cond
@@ -269,31 +329,6 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 
         [else
      (error "Unknown strategy:" strategy)]))
-
-(define-syntax (define-option-strategy-shortcuts stx)
-  (syntax-parse stx
-    [(_ strategy-name:id
-        #:ticker ticker:expr
-        #:ticker-price cp:expr
-        #:safe-mode safe:expr
-        (~optional [~seq #:volatility vol:expr] #:defaults ([vol #'0.2]))
-        (~optional [~seq #:risk-free-rate rfr:expr] #:defaults ([rfr #'0.05]))
-        (~optional [~seq #:quantity q:expr] #:defaults ([q #'1]))
-        (strategy-type:id args:expr ...))
-
-
-     (define strategy (syntax-e #'strategy-type))
-     (define args-list (map syntax-e (syntax->list #'(args ...))))
-  
-     (define legs (expand-strategy-legs strategy args-list #'q))
-
-     #`(define-option-strategy strategy-name
-         #:ticker         ticker
-         #:ticker-price   cp
-         #:safe-mode      safe
-         #:volatility     vol
-         #:risk-free-rate rfr
-         #,@legs)]))
 
 
 (define (share-payoff stock-price action quantity ticker-price)
@@ -585,17 +620,17 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 
 
 
-(define-option-strategy-shortcuts bullish-strat-shortened
+(define-option-strategy bullish-strat-shortened
   #:ticker 'AAPL
   #:ticker-price 145.75
-  #:safe-mode #t
+  #:shortcut-mode #t
   #:quantity 2
   (call-debit-spread 140 150 7))
 
-(define-option-strategy-shortcuts collar-shortened
+(define-option-strategy collar-shortened
   #:ticker 'AAPL
   #:ticker-price 145.75
-  #:safe-mode #t
+  #:shortcut-mode #t
   (collar 140 150 7))
 
 (define (graph-preview)
@@ -613,7 +648,7 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 (define-option-strategy decaying-call-spread
   #:ticker 'AAPL
   #:ticker-price 150
-  #:safe-mode #f
+  #:shortcut-mode #f
   #:volatility 0.3
   #:risk-free-rate 0.02
   (buy 1 call #:strike 145 #:expiration 1000)
@@ -623,7 +658,7 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 (define-option-strategy decaying-put-spread
   #:ticker 'AAPL
   #:ticker-price 150
-  #:safe-mode #f
+  #:shortcut-mode #f
   #:volatility 0.3
   #:risk-free-rate 0.02
   (buy 1 put #:strike 155 #:expiration 1000)
@@ -635,39 +670,40 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
   (graph-decision
    (list (list decaying-call-spread "Call Debit Spread" "blue")
          (list decaying-put-spread "Put Debit Spread" "red"))
-   #:3d #f))
+   #:3d #t))
 
 
 (define-option-strategy call-alone
   #:ticker 'AAPL
   #:ticker-price 150
-  #:safe-mode #f
+  #:shortcut-mode #f
   #:volatility 0.3
   #:risk-free-rate 0.02
   (buy 1 call #:strike 145 #:expiration 1000))
 
-(graph-decision
- (list (list call-alone "Long Call" "purple"))
- #:3d #t)
+(define (3dtest2)
+  (graph-decision
+   (list (list call-alone "Long Call" "purple"))
+   #:3d #t))
 
 (define-option-strategy covered-call-test
   #:ticker 'AAPL
   #:ticker-price 150
-  #:safe-mode #f
+  #:shortcut-mode #f
   (buy 100 shares)
   (sell 1 call #:strike 160 #:expiration 30))
 
 (define-option-strategy protective-put-test
   #:ticker 'AAPL
   #:ticker-price 150
-  #:safe-mode #f
+  #:shortcut-mode #f
   (buy 100 shares)
   (buy 1 put #:strike 140 #:expiration 30))
 
 (define-option-strategy synthetic-short-put
   #:ticker 'AAPL
   #:ticker-price 150
-  #:safe-mode #f
+  #:shortcut-mode #t
   (sell 100 shares)
   (buy 1 call #:strike 150 #:expiration 30))
 
@@ -683,18 +719,73 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
          calculate-premium
          option-payoff)
 
-(define-option-strategy naked-call
-  #:ticker 'AMZN
-  #:ticker-price 3000
-  #:safe-mode #t
-  (sell 1 call #:strike 3100 #:expiration 30))
-;; Error: "More calls sold than bought"
 
-(define-option-strategy too-far-otm
-  #:ticker 'NFLX
-  #:ticker-price 500
-  #:safe-mode #t
-  (buy 1 call #:strike 700 #:expiration 60))
+
+;; Failed shortcut mode examples
+
+#;
+(define-option-strategy bad-call-debit
+  #:ticker 'AAPL
+  #:ticker-price 150
+  #:shortcut-mode #t
+  #:quantity 1
+  (call-debit-spread 160 150 30))
+
+#;
+(define-option-strategy bad-put-debit
+  #:ticker 'AAPL
+  #:ticker-price 150
+  #:shortcut-mode #t
+  #:quantity 1
+  (put-debit-spread 140 150 30)) ; Invalid: buy 140 < sell 150
+
+#;
+(define-option-strategy bad-call-credit
+  #:ticker 'AAPL
+  #:ticker-price 150
+  #:shortcut-mode #t
+  #:quantity 1
+  (call-credit-spread 140 150 30)) ; Invalid: sell 140 < buy 150
+
+#;
+(define-option-strategy bad-put-credit
+  #:ticker 'AAPL
+  #:ticker-price 150
+  #:shortcut-mode #t
+  #:quantity 1
+  (put-credit-spread 150 140 30)) ; Invalid: sell 150 > buy 140
+
+#;
+(define-option-strategy bad-butterfly
+  #:ticker 'AAPL
+  #:ticker-price 150
+  #:shortcut-mode #t
+  #:quantity 1
+  (butterfly-spread 150 150 160 30)) ; Invalid: k1 == k2
+
+#;
+(define-option-strategy bad-butterfly-order
+  #:ticker 'AAPL
+  #:ticker-price 150
+  #:shortcut-mode #t
+  #:quantity 1
+  (butterfly-spread 160 150 140 30)) ; Invalid: out of order
+
+#;
+(define-option-strategy bad-iron-condor
+  #:ticker 'AAPL
+  #:ticker-price 150
+  #:shortcut-mode #t
+  #:quantity 1
+  (iron-condor 130 120 140 150 30)) ; Invalid: 130 > 120
+#;
+(define-option-strategy bad-long-strangle
+  #:ticker 'AAPL
+  #:ticker-price 150
+  #:shortcut-mode #t
+  #:quantity 1
+  (long-strangle 160 140 30)) ; Invalid: put 160 > call 140
+
 
 #;
 (graph-preview-single)
