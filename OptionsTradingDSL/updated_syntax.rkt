@@ -342,53 +342,6 @@ put strike must be less than call strike"
            price-change   ; Long position: profit when price increases
            (- price-change)))))  ; Short position: profit when price decreases
 
-(define (total-strategy-payoff strat stock-price)
-  (let* ([legs (strategy-legs strat)]
-         [ticker-price (strategy-ticker-price strat)]
-         [volatility (strategy-volatility strat)]
-         [risk-free-rate (strategy-risk-free-rate strat)])
-    (apply +
-           (map (λ (leg)
-                  (cond
-                    [(option-leg? leg)
-                     (option-payoff stock-price
-                                    (option-leg-strike leg)
-                                    (option-leg-action leg)
-                                    (option-leg-type leg)
-                                    (option-leg-qty leg)
-                                    (option-leg-premium leg)
-                                    risk-free-rate
-                                    volatility
-                                    (option-leg-expiration leg)
-                                    ticker-price)]
-                    [(shares-leg? leg)
-                     (share-payoff stock-price
-                                  (shares-leg-action leg)
-                                  (shares-leg-qty leg)
-                                  ticker-price)]
-                    [else (error "Unknown leg type")]))
-                legs))))
-
-(define (option-payoff stock-price strike action type quantity premium 
-                       risk-free-rate volatility expiration-days ticker-price)
-  (let* ([T (/ expiration-days 365.0)]  ;; Convert days to years
-         [actual-premium (if (equal? premium #f)
-                             (calculate-premium strike ticker-price T 
-                                                risk-free-rate
-                                                volatility type)
-                             premium)]  ;; Use either Black-Scholes
-         ;; or manual premium
-         [raw-payoff (cond
-                       [(eq? type 'call) (max 0 (- stock-price strike))]
-                       [(eq? type 'put)  (max 0 (- strike stock-price))])]
-         [intrinsic-value (* quantity 100 raw-payoff)] ;; pure option value
-         [initial-cost     (* quantity 100 actual-premium)])  ;; Cost upfront
-    
-    ;; Adjust for long and short call behavior
-    (if (eq? action 'buy)
-        (- intrinsic-value initial-cost)  ;; Buying: Pay premium upfront
-        (- initial-cost intrinsic-value))))  ;; Limit gains beyond strike
-
 
 (define (cdf x)
   (/ (+ 1 (erf (/ x (sqrt 2)))) 2))
@@ -438,15 +391,6 @@ put strike must be less than call strike"
                                         risk-free-rate volatility))])
     premium))
 
-
-(define (print-strategy strat)
-  (define min-price (- (strategy-ticker-price strat) 50))
-  (define max-price (+ (strategy-ticker-price strat) 50))
-  (define step 1)
-  (for ([price (in-range min-price (+ max-price step) step)])
-    (printf "Stock Price: ~a | Payoff: ~a\n"
-            price
-            (total-strategy-payoff strat price))))
 
 (define (option-value-at-time stock-price
                               strike
@@ -538,14 +482,13 @@ put strike must be less than call strike"
 (define (make-single-strategy-plot strategy label color x-min x-max
                                    #:days-since-purchase [days-since #f])
   (define (payoff x)
-    (if days-since
-        (let* ([expiration
-                (apply min
-                       (map option-leg-expiration
-                            (filter option-leg? (strategy-legs strategy))))]
-               [clipped-days (min days-since expiration)])
-          (total-strategy-value-at-time strategy x clipped-days))
-        (total-strategy-payoff strategy x)))
+    (let* ([expiration
+            (apply min
+                   (map option-leg-expiration
+                        (filter option-leg? (strategy-legs strategy))))] 
+           [clipped-days (or days-since expiration)])
+      (total-strategy-value-at-time strategy x clipped-days)))
+
   (define breakevens (find-breakeven-function payoff x-min x-max 0.001))
   (list (function payoff #:label label #:color color)
         (points (map (lambda (x) (vector x (payoff x))) breakevens)
@@ -711,8 +654,7 @@ put strike must be less than call strike"
 (define (3dtest2)
   (graph-decision
    (list (list call-alone-no-prem "Long Call" "purple"))
-   #:3d #f
-   #:days-since-purchase 0))
+   #:3d #f))
 
 (define-option-strategy covered-call-test
   #:ticker 'AAPL
@@ -741,8 +683,7 @@ put strike must be less than call strike"
 
 
 (provide define-option-strategy
-         calculate-premium
-         option-payoff)
+         calculate-premium)
 
 (define (debug-premium-and-value)
   (for ([d (in-range 0 11)])
