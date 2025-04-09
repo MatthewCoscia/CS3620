@@ -682,8 +682,8 @@ put strike must be less than call strike"
   #:ticker-price 150
   #:volatility 0.3
   #:risk-free-rate 0.02
-  (buy 1 put #:strike 155 #:expiration 500)
-  (sell 1 put #:strike 145 #:expiration 500))
+  (buy 1 put #:strike 155 #:expiration 1000)
+  (sell 1 put #:strike 145 #:expiration 1000))
 
 
 
@@ -691,7 +691,7 @@ put strike must be less than call strike"
   (graph-decision
    (list (list decaying-call-spread "Call Debit Spread" "blue")
          (list decaying-put-spread "Put Debit Spread" "red"))
-   #:3d #f
+   #:3d #t
    #:days-since-purchase 500))
 
 
