@@ -460,13 +460,12 @@ put strike must be less than call strike"
                               original-expiration-days
                               ticker-price)
   (let* ([T (/ (- original-expiration-days days-since-purchase) 365.0)]
+         [initial-T (/ original-expiration-days 365.0)]
          [cost-basis-per-contract
           (if (equal? premium #f)
-             
-              (calculate-premium strike ticker-price T
+              ;; Calculate premium at day 0 using ticker price
+              (calculate-premium strike ticker-price initial-T
                                  risk-free-rate volatility type)
-              ;; If premium *was* manually supplied, it's per contract already
-              ;; so divide by 100 to keep it in contract terms
               premium)]
          [bs-value (calculate-premium strike stock-price T
                                       risk-free-rate volatility type)]
@@ -702,6 +701,13 @@ put strike must be less than call strike"
   #:volatility 0.3
   #:risk-free-rate 0.02
   (buy 1 call #:strike 145 #:expiration 10 #:premium 1))
+
+(define-option-strategy call-alone-no-prem
+  #:ticker 'AAPL
+  #:ticker-price 150
+  #:volatility 0.3
+  #:risk-free-rate 0.02
+  (buy 1 call #:strike 145 #:expiration 10))
 
 (define (3dtest2)
   (graph-decision
