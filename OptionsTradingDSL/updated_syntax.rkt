@@ -682,9 +682,16 @@ put strike must be less than call strike"
    #:3d #f))
 
 
-(provide define-option-strategy
-         calculate-premium
-         option-value-at-time)
+(provide
+  (struct-out strategy)
+  (struct-out option-leg)
+  (struct-out shares-leg)
+  define-option-strategy
+  calculate-premium
+  option-value-at-time
+  total-strategy-value-at-time
+  share-payoff)
+
 
 (define (debug-premium-and-value)
   (for ([d (in-range 0 11)])

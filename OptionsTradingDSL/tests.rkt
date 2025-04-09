@@ -82,21 +82,60 @@
   (check-= (option-value-at-time 100 100 'buy 'call 1 2 0 0 365 365 100) -200 0.001)
   (check-= (option-value-at-time 100 100 'sell 'call 1 2 0 0 365 365 100) 200 0.001)
   (check-= (option-value-at-time 110 100 'buy 'call 2 5 0 0 365 365 100) 1000 0.001)
-
-  ;; This one tests Black-Scholes value at half-life (not expiration)
-  ;; strike 100, spot 105, action = buy call, quantity = 1, premium = #f,
-  ;; rfr = 0.05, volatility = 0, days-since = 0, expiration = 365
   (check-= (option-value-at-time 105 100 'buy 'call 1 #f 0.05 0.3 0 365 100)
          327.38 0.5))
 
+(define-test-suite total-strategy-value-tests
 
+  ;; Test long call: In-the-money
+  (check-= 
+   (total-strategy-value-at-time
+    (strategy 'test 'AAPL 100 #f 0.3 0.05
+              (list (option-leg 'buy 1 'call 90 30 #f)))
+    105 ;; current stock price
+    0)  ;; 0 days passed → full expiration
+   (option-value-at-time 105 90 'buy 'call 1 #f 0.05 0.3 0 30 100)
+   0.01)
 
-;; Example Fails
+  ;; Test long put: In-the-money
+  (check-=
+   (total-strategy-value-at-time
+    (strategy 'test2 'AAPL 100 #f 0.3 0.05
+              (list (option-leg 'buy 1 'put 110 30 #f)))
+    100 0)
+   (option-value-at-time 100 110 'buy 'put 1 #f 0.05 0.3 0 30 100))
 
-(define (fails-to-compile? expr)
-  (with-handlers ([exn:fail? (λ (_) #t)]) ;; If an exception occurs, return #t
-    (eval expr)  ;; Try to evaluate the expression
-    #f))         ;; If it compiles, return #f (which is a failure in our test)
+  ;; Test covered call (long shares + short call)
+  (check-=
+   (total-strategy-value-at-time
+    (strategy 'covered 'AAPL 100 #f 0.2 0.05
+              (list
+               (shares-leg 'buy 100)
+               (option-leg 'sell 1 'call 110 10 #f)))
+    115
+    0)
+   (+ (share-payoff 115 'buy 100 100)
+      (option-value-at-time 115 110 'sell 'call 1 #f 0.05 0.2 0 10 100)))
+
+  ;; Test short put (out-of-the-money)
+  (check-=
+   (total-strategy-value-at-time
+    (strategy 'short-put 'AAPL 100 #f 0.25 0.05
+              (list (option-leg 'sell 1 'put 90 30 #f)))
+    100
+    0)
+   (option-value-at-time 100 90 'sell 'put 1 #f 0.05 0.25 0 30 100))
+
+  ;; Test far-from-expiration value
+  (check-=
+   (total-strategy-value-at-time
+    (strategy 'long-call-time 'AAPL 100 #f 0.4 0.05
+              (list (option-leg 'buy 1 'call 120 365 #f)))
+    105
+    0) ;; day 0
+   (option-value-at-time 105 120 'buy 'call 1 #f 0.05 0.4 0 365 100))
+)
+
 
 
 ;; Run all tests with verbose output
@@ -105,4 +144,7 @@
 (newline)
 (displayln "Running Option Value Tests:")
 (run-tests option-value-tests 'verbose)
+(newline)
+(displayln "Running Total Option Value Tests:")
+(run-tests total-strategy-value-tests 'verbose)
 (newline)
