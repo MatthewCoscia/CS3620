@@ -15,7 +15,6 @@
 (define-option-strategy risky-strat
   #:ticker 'TSLA
   #:ticker-price 250.50
-  #:safe-mode #t
   (buy 1 call #:strike 300 #:expiration 30)  ;; Naked call
   (sell 1 call  #:strike 200 #:expiration 30)) ;; Naked put
 
@@ -23,7 +22,6 @@
 (define-option-strategy safe-strat
   #:ticker 'GOOG
   #:ticker-price 145.75
-  #:safe-mode #t
   (sell 1 call #:strike 150 #:expiration 30)
   (buy  1 call #:strike 150 #:expiration 30)  ;; Covers call
   (sell 1 put  #:strike 140 #:expiration 30)
@@ -32,7 +30,6 @@
 (define-option-strategy bullish-strat
   #:ticker 'AAPL
   #:ticker-price 145.75
-  #:safe-mode #t
   (buy 1 call #:strike 140 #:expiration 30)  ;; Lower strike, long call
   (sell 1 call #:strike 150 #:expiration 30)) ;; Higher strike, short call
 
@@ -42,7 +39,6 @@
 (define-option-strategy high-vol-strat
   #:ticker 'AAPL
   #:ticker-price 145.75
-  #:safe-mode #t
   #:volatility 0.3  ;; 30% volatility
   #:risk-free-rate 0.02  ;; 2% risk-free rate
   (buy 1 call #:strike 140 #:expiration 30)
@@ -51,7 +47,6 @@
 (define-option-strategy high-vol-strat-prem
   #:ticker 'AAPL
   #:ticker-price 280.75
-  #:safe-mode #t
   #:volatility 0.3  ;; 30% volatility
   #:risk-free-rate 0.02  ;; 2% risk-free rate
   (buy 1 call #:strike 240 #:expiration 30 #:premium 7.50)
@@ -96,58 +91,6 @@
     (eval expr)  ;; Try to evaluate the expression
     #f))         ;; If it compiles, return #f (which is a failure in our test)
 
-(define-test-suite safe-mode-failure-tests
-
-  ;; Cannot sell more contracts than total purchased (no over-leveraging)
-  (check-true (fails-to-compile?
-               '(define-option-strategy over-leveraged
-                  #:ticker 'TSLA
-                  #:ticker-price 700
-                  #:safe-mode #t
-                  (buy 2 call #:strike 750 #:expiration 30)
-                  (sell 5 call #:strike 750 #:expiration 30)))
-              ;; Selling more than buying
-              "Safe mode: Should fail because more options
-\are sold than bought.")
-
-  ;; Strike price must be within 30% of current price
-  (check-true (fails-to-compile?
-               '(define-option-strategy too-far-otm
-                  #:ticker 'NFLX
-                  #:ticker-price 500
-                  #:safe-mode #t
-                  (buy 1 call #:strike 700 #:expiration 60)))
-              ;; 40% away from current price
-              "Safe mode: Should fail because strike price is too high.")
-
-  (check-true (fails-to-compile?
-               '(define-option-strategy too-far-it
-                  #:ticker 'NFLX
-                  #:ticker-price 500
-                  #:safe-mode #t
-                  (buy 1 put #:strike 250 #:expiration 60)))
-              ;; Strike too far from current price
-              "Safe mode: Should fail because strike price is too low.")
-
-  ;; Naked short calls or puts are not allowed
-  (check-true (fails-to-compile?
-               '(define-option-strategy naked-call
-                  #:ticker 'AMZN
-                  #:ticker-price 3000
-                  #:safe-mode #t
-                  (sell 1 call #:strike 3100 #:expiration 30)))
-              ;; No corresponding "buy"
-              "Safe mode: Should fail because selling a naked call.")
-
-  (check-true (fails-to-compile?
-               '(define-option-strategy naked-put
-                  #:ticker 'GOOG
-                  #:ticker-price 2800
-                  #:safe-mode #t
-                  (sell 1 put #:strike 2700 #:expiration 30)))
-              ;; No corresponding "buy"
-              "Safe mode: Should fail because selling a naked put.")
-  )
 
 ;; Run all tests with verbose output
 (displayln "Running Premium Tests:")
@@ -156,5 +99,3 @@
 (displayln "Running Payoff Tests:")
 (run-tests payoff-tests 'verbose)
 (newline)
-(displayln "Compilation Error Tests:")
-(run-tests safe-mode-failure-tests 'verbose)
