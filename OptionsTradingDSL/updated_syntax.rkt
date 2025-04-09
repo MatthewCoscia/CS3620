@@ -497,7 +497,6 @@ put strike must be less than call strike"
                                        (option-leg-expiration leg)
                                        ticker-price)]
                 [(shares-leg? leg)
-                 ;; Shares payoff is basically stock-price - cost basis:
                  (share-payoff stock-price
                                (shares-leg-action leg)
                                (shares-leg-qty leg)
