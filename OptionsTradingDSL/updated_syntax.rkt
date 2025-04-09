@@ -83,55 +83,52 @@
 ;; Define the main macro
 (define-syntax (define-option-strategy stx)
   (syntax-parse stx
-    ;; Shortcut syntax case
+    ;; Auto-detect shortcut syntax case (strategy-type with arguments)
     [(_ strategy-name:id
         #:ticker ticker:expr
         #:ticker-price cp:expr
-        #:shortcut-mode shortcut:expr
         (~optional (~seq #:volatility vol:expr) #:defaults ([vol #'0.2]))
         (~optional (~seq #:risk-free-rate rfr:expr) #:defaults ([rfr #'0.05]))
         (~optional (~seq #:quantity q:expr) #:defaults ([q #'1]))
         (strategy-type:id args:expr ...))
 
-     ;; Validate shortcut mode
-     (if (equal? (syntax-e #'shortcut) #f)
-         (raise-syntax-error 'define-option-strategy
-           "Shortcut syntax requires #:shortcut-mode #t"
-           #'strategy-type)
-         (let ()
-           (define strategy (syntax-e #'strategy-type))
-           (define args-list-stx (syntax->list #'(args ...)))
-           (define args-list (map syntax-e args-list-stx))
-           (define legs (expand-strategy-legs strategy args-list #'q args-list-stx))
+     (let ()
+       (define strategy (syntax-e #'strategy-type))
+       (define args-list-stx (syntax->list #'(args ...)))
+       (define args-list (syntax->datum #'(args ...)))
+       (define legs (expand-strategy-legs strategy args-list #'q args-list-stx))
 
-           #`(define-option-strategy
-               strategy-name
-               #:ticker ticker
-               #:ticker-price cp
-               #:shortcut-mode #f  ; Disable to prevent recursion
-               #:volatility vol
-               #:risk-free-rate rfr
-               #,@legs)))]
+       #`(define-option-strategy
+           strategy-name
+           #:ticker ticker
+           #:ticker-price cp
+           #:volatility vol
+           #:risk-free-rate rfr
+           #,@legs))]
 
-    ;; Longform syntax case
+    ;; Longform syntax case (explicit legs)
     [(_ strategy-name:id
         #:ticker ticker:expr
         #:ticker-price cp:expr
-        #:shortcut-mode shortcut:expr
         (~optional (~seq #:volatility vol:expr) #:defaults ([vol #'0.2]))
         (~optional (~seq #:risk-free-rate rfr:expr) #:defaults ([rfr #'0.05]))
         legs:leg-pattern ...)
 
-     ;; Directly create strategy struct
      #`(define strategy-name
          (strategy
           'strategy-name
           ticker
           cp
-          shortcut
+          #f  ;; Auto-insert default safe-mode value
           vol
           rfr
-          (list legs.result ...)))]))
+          (list legs.result ...)))]
+
+    ;; Error case for invalid strategy syntax
+    [_
+     (raise-syntax-error 'define-option-strategy
+                         "Invalid strategy syntax. Use either:\n"
+                         stx)]))
 
 
 
@@ -623,14 +620,12 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 (define-option-strategy bullish-strat-shortened
   #:ticker 'AAPL
   #:ticker-price 145.75
-  #:shortcut-mode #t
   #:quantity 2
   (call-debit-spread 140 150 7))
 
 (define-option-strategy collar-shortened
   #:ticker 'AAPL
   #:ticker-price 145.75
-  #:shortcut-mode #t
   (collar 140 150 7))
 
 (define (graph-preview)
@@ -648,7 +643,6 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 (define-option-strategy decaying-call-spread
   #:ticker 'AAPL
   #:ticker-price 150
-  #:shortcut-mode #f
   #:volatility 0.3
   #:risk-free-rate 0.02
   (buy 1 call #:strike 145 #:expiration 1000)
@@ -658,7 +652,6 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 (define-option-strategy decaying-put-spread
   #:ticker 'AAPL
   #:ticker-price 150
-  #:shortcut-mode #f
   #:volatility 0.3
   #:risk-free-rate 0.02
   (buy 1 put #:strike 155 #:expiration 1000)
@@ -676,7 +669,6 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 (define-option-strategy call-alone
   #:ticker 'AAPL
   #:ticker-price 150
-  #:shortcut-mode #f
   #:volatility 0.3
   #:risk-free-rate 0.02
   (buy 1 call #:strike 145 #:expiration 1000))
@@ -689,21 +681,18 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 (define-option-strategy covered-call-test
   #:ticker 'AAPL
   #:ticker-price 150
-  #:shortcut-mode #f
   (buy 100 shares)
   (sell 1 call #:strike 160 #:expiration 30))
 
 (define-option-strategy protective-put-test
   #:ticker 'AAPL
   #:ticker-price 150
-  #:shortcut-mode #f
   (buy 100 shares)
   (buy 1 put #:strike 140 #:expiration 30))
 
 (define-option-strategy synthetic-short-put
   #:ticker 'AAPL
   #:ticker-price 150
-  #:shortcut-mode #t
   (sell 100 shares)
   (buy 1 call #:strike 150 #:expiration 30))
 
@@ -727,7 +716,6 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 (define-option-strategy bad-call-debit
   #:ticker 'AAPL
   #:ticker-price 150
-  #:shortcut-mode #t
   #:quantity 1
   (call-debit-spread 160 150 30))
 
@@ -735,7 +723,6 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 (define-option-strategy bad-put-debit
   #:ticker 'AAPL
   #:ticker-price 150
-  #:shortcut-mode #t
   #:quantity 1
   (put-debit-spread 140 150 30)) ; Invalid: buy 140 < sell 150
 
@@ -743,7 +730,6 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 (define-option-strategy bad-call-credit
   #:ticker 'AAPL
   #:ticker-price 150
-  #:shortcut-mode #t
   #:quantity 1
   (call-credit-spread 140 150 30)) ; Invalid: sell 140 < buy 150
 
@@ -751,7 +737,6 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 (define-option-strategy bad-put-credit
   #:ticker 'AAPL
   #:ticker-price 150
-  #:shortcut-mode #t
   #:quantity 1
   (put-credit-spread 150 140 30)) ; Invalid: sell 150 > buy 140
 
@@ -759,7 +744,6 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 (define-option-strategy bad-butterfly
   #:ticker 'AAPL
   #:ticker-price 150
-  #:shortcut-mode #t
   #:quantity 1
   (butterfly-spread 150 150 160 30)) ; Invalid: k1 == k2
 
@@ -767,7 +751,6 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 (define-option-strategy bad-butterfly-order
   #:ticker 'AAPL
   #:ticker-price 150
-  #:shortcut-mode #t
   #:quantity 1
   (butterfly-spread 160 150 140 30)) ; Invalid: out of order
 
@@ -775,14 +758,12 @@ diagonal-call-spread    | (near-strike near-expiration far-strike far-expiration
 (define-option-strategy bad-iron-condor
   #:ticker 'AAPL
   #:ticker-price 150
-  #:shortcut-mode #t
   #:quantity 1
   (iron-condor 130 120 140 150 30)) ; Invalid: 130 > 120
 #;
 (define-option-strategy bad-long-strangle
   #:ticker 'AAPL
   #:ticker-price 150
-  #:shortcut-mode #t
   #:quantity 1
   (long-strangle 160 140 30)) ; Invalid: put 160 > call 140
 
