@@ -632,8 +632,8 @@ put strike must be less than call strike"
   (graph-decision
    (list (list decaying-call-spread "Call Debit Spread" "blue")
          (list decaying-put-spread "Put Debit Spread" "red"))
-   #:3d #t
-   #:days-since-purchase 500))
+   #:3d #f
+   #:days-since-purchase 1000))
 
 
 (define-option-strategy call-alone
@@ -660,7 +660,7 @@ put strike must be less than call strike"
   #:ticker 'AAPL
   #:ticker-price 150
   (buy 100 shares)
-  (sell 1 call #:strike 160 #:expiration 1000))
+  (sell 1 call #:strike 160 #:expiration 30))
 
 (define-option-strategy protective-put-test
   #:ticker 'AAPL
@@ -679,7 +679,7 @@ put strike must be less than call strike"
    (list (list covered-call-test "Covered Call" "blue")
          (list protective-put-test "Protective Put" "green")
          (list synthetic-short-put "Synthetic Short Put" "red"))
-   #:3d #f))
+   #:3d #t))
 
 
 (provide
