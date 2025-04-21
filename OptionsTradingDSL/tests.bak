@@ -1,6 +1,5 @@
 #lang racket
-(require rackunit
-         rackunit/text-ui)
+(require rackunit)
 
 (require "private/functions.rkt")
 (require "main.rkt")
@@ -258,8 +257,6 @@
    option-value-tests
    total-strategy-value-tests))
 
-(module+ test
-  (run-tests all-tests 'verbose))
 
 
 
