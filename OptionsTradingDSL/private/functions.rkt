@@ -1,6 +1,5 @@
 #lang racket
-(require plot
-         math/special-functions)
+(require math/special-functions)
 ;; -----------------------------------------------------------------------------
 ;; Pricing & payoff math
 ;; -----------------------------------------------------------------------------
@@ -118,20 +117,7 @@
               (loop (+ price step) (cons price breakevens))
               (loop (+ price step) breakevens))))))
 
-(define (make-single-strategy-plot strategy label color x-min x-max
-                                   #:days-since-purchase [days-since #f])
-  (define (payoff x)
-    (let* ([expiration
-            (apply min
-                   (map option-leg-expiration
-                        (filter option-leg? (strategy-legs strategy))))] 
-           [clipped-days (or days-since expiration)])
-      (total-strategy-value-at-time strategy x clipped-days)))
 
-  (define breakevens (find-breakeven-function payoff x-min x-max 0.001))
-  (list (function payoff #:label label #:color color)
-        (points (map (lambda (x) (vector x (payoff x))) breakevens)
-                #:sym 'circle #:size 8 #:color color #:label #f)))
 
 
 ;; -----------------------------------------------------------------------------
@@ -324,7 +310,7 @@
   assert
   shares
   get-plot-bounds
-  make-single-strategy-plot
+  find-breakeven-function
   expand-strategy-legs
   positive-integer?
   non‐neg-number?

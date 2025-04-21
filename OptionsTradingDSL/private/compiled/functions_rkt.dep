@@ -1,0 +1,1 @@
+("8.14" tarm64osx ("ddef6d6dfd28c3a17cd3e0c537fa7ed08c1b2539" . "e49872447ce79ac355b675b33532b17f8e748a6a") (collects #"math" #"special-functions.rkt") (collects #"racket" #"main.rkt") (collects #"racket" #"runtime-config.rkt") (indirect collects #"racket" #"match" #"gen-match.rkt") (indirect collects #"racket" #"match" #"parse.rkt"))

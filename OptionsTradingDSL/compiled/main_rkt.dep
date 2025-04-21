@@ -1,0 +1,1 @@
+("8.14" tarm64osx ("6ec4eea2a9c12dbb158fc1f2c9bb2d53873205f5" . "140191df46cab4d523871e56957388490bdf4566") (collects #"OptionsTradingDSL" #"private" #"functions.rkt") (collects #"racket" #"main.rkt") (collects #"racket" #"runtime-config.rkt"))

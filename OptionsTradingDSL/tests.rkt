@@ -1,10 +1,8 @@
 #lang racket
-(require rackunit
-         rackunit/text-ui
-         OptionsTradingDSL)
+(require rackunit)
 
 (require "private/functions.rkt")
-
+(require "main.rkt")
 
 
 
@@ -33,10 +31,6 @@
                  (buy 1 call #:strike 145 #:expiration 1000)
                  (sell 1 call #:strike 155 #:expiration 1000)))
 
-(define (graph-preview-single)
-  (graph-decision
-   (list (list bullish-strat-shortened "Bull Call Spread" "blue"))
-   #:3d #t))
 
 (define covered-call-test
   (make-strategy 'covered-call-test
@@ -59,12 +53,6 @@
                  (sell 100 shares)
                  (buy 1 call #:strike 150 #:expiration 30)))
 
-(define (share-test)
-  (graph-decision
-   (list (list covered-call-test      "Covered Call"          "blue")
-         (list protective-put-test    "Protective Put"        "green")
-         (list synthetic-short-put    "Synthetic Short Put"   "red"))
-   #:3d #t))
 
 
 #;
@@ -270,6 +258,5 @@
    total-strategy-value-tests))
 
 
-(module+ test
-  (run-tests all-tests 'normal))
+
 

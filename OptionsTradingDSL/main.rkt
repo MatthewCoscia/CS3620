@@ -6,9 +6,9 @@
 ;;      – make-strategy            → fully‐specified legs using helpers (buy/sell).
 ;; -----------------------------------------------------------------------------
 
-(require plot
-         math/special-functions)
 (require "private/functions.rkt")
+;; Use dynamic-require for lazy loading
+(define gui-module '("private/gui.rkt"))
 
 ;; -----------------------------------------------------------------------------
 ;; Public constructors
@@ -42,8 +42,14 @@
 
   (strategy name ticker cp #f vol rfr legs))
 
+;; Define function that gets the plot utility dynamically
+(define (get-render-3d-function)
+  (dynamic-require (car gui-module) 'render-multiple-strategies-3d))
 
+(define (get-render-2d-function)
+  (dynamic-require (car gui-module) 'render-multiple-strategies-2d))
 
+;; Define public interfaces with lazy loading
 (define (graph-multiple-strategies-3d strategies
                                       #:min-price [min-price #f]
                                       #:max-price [max-price #f]
@@ -51,53 +57,16 @@
                                       #:max-days [max-days 60]
                                       #:price-step [price-step 5]
                                       #:day-step [day-step 2])
-  (let-values ([(x-min x-max)
-                (get-plot-bounds strategies min-price max-price)])
-    (parameterize ([plot-new-window? #t])
-      (plot3d
-       (append
-        (for/list ([strat-info strategies])
-          (match-define (list strategy label color) strat-info)
-          (surface3d
-           (λ (x y)
-             (total-strategy-value-at-time strategy x y))
-           x-min x-max
-           min-days max-days
-           #:color color)))
-       #:title "Option Strategy Value Over Time (3D)"
-       #:x-label "Stock Price"
-       #:y-label "Days Since Purchase"
-       #:z-label "Profit/Loss"
-       #:x-min x-min
-       #:x-max x-max
-       #:y-min min-days
-       #:y-max max-days
-       #:width 1400
-       #:height 600))))
+  (define render-3d (get-render-3d-function))
+  (render-3d strategies min-price max-price 
+             min-days max-days price-step day-step))
 
-;; Main function
 (define (graph-multiple-strategies-2d strategies
                                       #:min-price [min-price #f]
                                       #:max-price [max-price #f]
                                       #:days-since-purchase [days-since #f])
-  (let-values ([(x-min x-max)
-                (get-plot-bounds strategies min-price max-price)])
-    (parameterize ([plot-new-window? #t])  
-      (plot (append-map (lambda (strat-info)
-                          (match-define
-                            (list strategy label color) strat-info)
-                          (make-single-strategy-plot
-                           strategy label color x-min
-                           x-max #:days-since-purchase days-since))
-                        strategies)
-            #:title "Option Strategy Comparison"
-            #:x-label "Stock Price"
-            #:y-label "Profit/Loss"
-            #:x-min x-min
-            #:x-max x-max
-            #:width 1400
-            #:height 600
-            #:legend-anchor 'outside-right))))
+  (define render-2d (get-render-2d-function))
+  (render-2d strategies min-price max-price days-since))
 
 (define (graph-decision strategy-triplets
                         #:3d [use-3d? #f]
@@ -135,15 +104,10 @@
        #:max-price max-price
        #:days-since-purchase days-since)))
 
-
-
-
 (provide
   make-strategy/shortcut
   make-strategy
   graph-multiple-strategies-3d
   graph-multiple-strategies-2d
   graph-decision)
-
-
 
