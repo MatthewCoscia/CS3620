@@ -1,12 +1,79 @@
 #lang racket
 (require rackunit
-         rackunit/text-ui)
+         rackunit/text-ui
+         OptionsTradingDSL)
 
-(require "function_based.rkt")
+(require "private/functions.rkt")
+
+
+
 
 ;; -----------------------------------------------------------------------------
-;; Tests
+;; Example usage
 ;; -----------------------------------------------------------------------------
+(define bullish-strat-shortened
+  (make-strategy/shortcut 'bullish-strat-shortened
+                          #:ticker 'AAPL
+                          #:ticker-price 145.75
+                          #:quantity 2
+                          `call-debit-spread 140 150 7))
+
+(define collar-shortened
+  (make-strategy/shortcut 'collar-shortened
+                          #:ticker 'AAPL
+                          #:ticker-price 145.75
+                          `collar 140 150 7))
+
+(define decaying-call-spread
+  (make-strategy 'decaying-call-spread
+                 #:ticker 'AAPL
+                 #:ticker-price 150
+                 #:volatility 0.3
+                 #:risk-free-rate 0.02
+                 (buy 1 call #:strike 145 #:expiration 1000)
+                 (sell 1 call #:strike 155 #:expiration 1000)))
+
+(define (graph-preview-single)
+  (graph-decision
+   (list (list bullish-strat-shortened "Bull Call Spread" "blue"))
+   #:3d #t))
+
+(define covered-call-test
+  (make-strategy 'covered-call-test
+                 #:ticker 'AAPL
+                 #:ticker-price 150
+                 (buy 100 shares)
+                 (sell 1 call #:strike 160 #:expiration 30)))
+
+(define protective-put-test
+  (make-strategy 'protective-put-test
+                 #:ticker 'AAPL
+                 #:ticker-price 150
+                 (buy 100 shares)
+                 (buy 1 put #:strike 140 #:expiration 30)))
+
+(define synthetic-short-put
+  (make-strategy 'synthetic-short-put
+                 #:ticker 'AAPL
+                 #:ticker-price 150
+                 (sell 100 shares)
+                 (buy 1 call #:strike 150 #:expiration 30)))
+
+(define (share-test)
+  (graph-decision
+   (list (list covered-call-test      "Covered Call"          "blue")
+         (list protective-put-test    "Protective Put"        "green")
+         (list synthetic-short-put    "Synthetic Short Put"   "red"))
+   #:3d #t))
+
+
+#;
+(define bad-call-debit
+  (make-strategy/shortcut 'bad-call-debit
+                          #:ticker 'AAPL
+                          #:ticker-price 150
+                          #:quantity 1
+                          'call-debit-spread 160 150 30))
 
 ;; helper that produces a test‐case in one line
 (define (expect-fail desc thunk)
