@@ -7,7 +7,28 @@ Here's an example program
 ```
 #lang racket
 
-(require minipeg)
+(require trading)
+
+(define collar-shortened
+  (make-strategy/shortcut 'collar-shortened
+                          #:ticker 'AAPL
+                          #:ticker-price 145.75
+                          `collar 140 150 7))
+
+
+(define covered-call-test
+  (make-strategy 'covered-call-test
+                 #:ticker 'AAPL
+                 #:ticker-price 150
+                 (buy 100 shares)
+                 (sell 1 call #:strike 160 #:expiration 30)))
+                
+                
+(define (graph-preview-single)
+  (graph-decision
+   (list (list collar-shortened "Collar Spread" "blue")
+         (list covered-call-test "Covered Call Spread" "green"))
+   #:3d #t))
 ```
 
 ## Installing and running
