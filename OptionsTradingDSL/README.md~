@@ -43,17 +43,17 @@ raco pkg install
 Then import as
 
 ```
-(require OptionsTradingDSL)
+(require trading)
 ```
 
 Once installed, you can access the documentation via:
 
 ```
-raco docs OptionsTradingDSL
+raco docs trading
 ```
 
 Finally, you can run the tests with:
 
 ```
-raco test -p OptionsTradingDSL
+raco test -p trading
 ```
