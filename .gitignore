@@ -1,4 +1,5 @@
 *.rkt~
+*.scrbl~
 scribblings/*.html
 scribblings/*.js
 scribblings/*.css
