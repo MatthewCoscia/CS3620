@@ -13,7 +13,7 @@ Here's an example program that graphs in 3d
   (make-strategy/shortcut 'collar-shortened
                           #:ticker 'AAPL
                           #:ticker-price 145.75
-                          `collar 140 150 7))
+                          `collar 140 150 30))
 
 
 (define covered-call-test
