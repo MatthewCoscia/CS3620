@@ -6,12 +6,8 @@
 ;;      – make-strategy            → fully‐specified legs using helpers (buy/sell).
 ;; -----------------------------------------------------------------------------
 
-(require racket/match
-         racket/date
-         plot
-         math/special-functions
-         rackunit
-         rackunit/text-ui)
+(require plot
+         math/special-functions)
 
 ;; -----------------------------------------------------------------------------
 ;; Symbol constants so users can write `call`, `put`, and `shares` without quotes
@@ -513,6 +509,11 @@
                           #:ticker-price 150
                           #:quantity 1
                           'call-debit-spread 160 150 30))
+
+
+
+
+(graph-preview-single)
 
 (provide
   (struct-out strategy)

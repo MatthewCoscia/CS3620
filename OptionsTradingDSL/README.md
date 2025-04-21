@@ -2,7 +2,7 @@
 
 This trading DSL gives you the abiltiy to test complex options trades before execution in your broker. With plenty of different option trading presets and error checking, the package makes sure you're staying safe financially while trading. 
 
-Here's an example program
+Here's an example program that graphs in 3d
 
 ```
 #lang racket

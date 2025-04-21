@@ -1,0 +1,1 @@
+("8.14" tarm64osx ("59d44b253beedabae2c728e26a81b915e30ce547" . "a3dfa5dbbc4ce841bbfb8306a0302b0ab4b037d3") (collects #"info" #"main.rkt") (collects #"setup" #"infotab.rkt"))
